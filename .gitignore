@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PostgreSQL
+postgres/data/
+postgres/logs/
+postgres/
