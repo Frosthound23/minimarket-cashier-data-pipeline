@@ -1,0 +1,324 @@
+x-airflow-common: &airflow-common
+  image: pos-airflow:2.7.3-python3.10
+  build:
+    context: ./airflow
+    dockerfile: Dockerfile
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_postgres:5432/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__WEBSERVER__SECRET_KEY: airflow_secret_change_me
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    DOCKER_HOST: unix://var/run/docker.sock
+    COMPOSE_PROJECT_NAME: pos_pipeline
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./dbt:/opt/airflow/dbt
+    - ./dq:/opt/airflow/dq
+    - ./pipeline/config:/opt/airflow/pipeline/config
+    - /var/run/docker.sock:/var/run/docker.sock
+  networks:
+    - pos_network
+
+services:
+  # =========================
+  # Source OLTP Database
+  # =========================
+  postgres:
+    image: postgres:15-alpine
+    container_name: pos_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pos_source
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./scripts/seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pos_source"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pos_network
+
+  # =========================
+  # Data Warehouse
+  # =========================
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: pos_clickhouse
+    environment:
+      CLICKHOUSE_DB: pos_dwh
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./scripts/init_clickhouse.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pos_network
+
+  # =========================
+  # Golang ELT Pipeline
+  # Airflow can run this image using DockerOperator.
+  # =========================
+  elt:
+    image: pos-elt:latest
+    build:
+      context: ./pipeline
+      dockerfile: Dockerfile
+    container_name: pos_elt
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pos_source
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_HTTP_PORT: 8123
+      CLICKHOUSE_DB: pos_dwh
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      TENANT_CONFIG_PATH: /app/config/tenants.json
+    volumes:
+      - ./pipeline/config:/app/config:ro
+    networks:
+      - pos_network
+    profiles:
+      - manual
+
+  # =========================
+  # dbt Core + ClickHouse adapter
+  # Airflow can run this image using DockerOperator.
+  # =========================
+  dbt:
+    image: pos-dbt:latest
+    build:
+      context: ./dbt
+      dockerfile: Dockerfile
+    container_name: pos_dbt
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      DBT_PROFILES_DIR: /usr/app
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: pos_dwh
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    volumes:
+      - ./dbt:/usr/app
+    working_dir: /usr/app
+    networks:
+      - pos_network
+    profiles:
+      - manual
+
+  # =========================
+  # Optional Data Quality Runner: Soda Core
+  # Airflow can run this image using DockerOperator.
+  # =========================
+  dq:
+    image: pos-dq:latest
+    build:
+      context: ./dq
+      dockerfile: Dockerfile
+    container_name: pos_dq
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: pos_dwh
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    volumes:
+      - ./dq:/app
+    working_dir: /app
+    networks:
+      - pos_network
+    profiles:
+      - manual
+
+  # =========================
+  # Airflow Metadata Database
+  # =========================
+  airflow_postgres:
+    image: postgres:15-alpine
+    container_name: airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pos_network
+
+  # =========================
+  # Airflow Init
+  # =========================
+  airflow_init:
+    <<: *airflow-common
+    container_name: airflow_init
+    depends_on:
+      airflow_postgres:
+        condition: service_healthy
+    user: "0:0"
+    command: >
+      bash -c "
+      airflow db migrate &&
+      airflow users create
+        --username admin
+        --firstname Airflow
+        --lastname Admin
+        --role Admin
+        --email admin@example.com
+        --password admin || true
+      "
+
+  # =========================
+  # Airflow Webserver
+  # =========================
+  airflow_webserver:
+    <<: *airflow-common
+    container_name: airflow_webserver
+    depends_on:
+      airflow_init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    command: webserver
+
+  # =========================
+  # Airflow Scheduler
+  # =========================
+  airflow_scheduler:
+    <<: *airflow-common
+    container_name: airflow_scheduler
+    depends_on:
+      airflow_init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    command: scheduler
+
+  # =========================
+  # Superset Metadata Database
+  # =========================
+  superset_postgres:
+    image: postgres:15-alpine
+    container_name: superset_postgres
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+      POSTGRES_DB: superset
+    volumes:
+      - superset_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pos_network
+
+  # =========================
+  # Superset Init
+  # =========================
+  superset_init:
+    image: pos-superset:latest
+    build:
+      context: ./superset
+      dockerfile: Dockerfile
+    container_name: superset_init
+    depends_on:
+      superset_postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: superset_secret_key_change_me
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@superset_postgres:5432/superset
+    command: >
+      /bin/bash -c "
+      superset db upgrade &&
+      superset fab create-admin
+        --username admin
+        --firstname Superset
+        --lastname Admin
+        --email admin@example.com
+        --password admin || true &&
+      superset init
+      "
+    networks:
+      - pos_network
+
+  # =========================
+  # Superset Webserver
+  # =========================
+  superset:
+    image: pos-superset:latest
+    build:
+      context: ./superset
+      dockerfile: Dockerfile
+    container_name: pos_superset
+    depends_on:
+      superset_init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: superset_secret_key_change_me
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@superset_postgres:5432/superset
+    ports:
+      - "8088:8088"
+    command: >
+      /bin/bash -c "
+      superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger
+      "
+    networks:
+      - pos_network
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  airflow_postgres_data:
+  superset_postgres_data:
+
+networks:
+  pos_network:
+    name: pos_network
+    driver: bridge
