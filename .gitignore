@@ -221,3 +221,7 @@ __marimo__/
 postgres/data/
 postgres/logs/
 postgres/
+
+# DS_STORE
+.DS_Store
+pipeline/go.mod

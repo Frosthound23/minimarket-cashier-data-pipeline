@@ -22,9 +22,6 @@ x-airflow-common: &airflow-common
     - pos_network
 
 services:
-  # =========================
-  # Source OLTP Database
-  # =========================
   postgres:
     image: postgres:15-alpine
     container_name: pos_postgres
@@ -35,7 +32,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/data:/var/lib/postgresql/data
       - ./scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
       - ./scripts/seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
     healthcheck:
@@ -46,9 +43,7 @@ services:
     networks:
       - pos_network
 
-  # =========================
-  # Data Warehouse
-  # =========================
+# CLICKHOUSE
   clickhouse:
     image: clickhouse/clickhouse-server:24.3
     container_name: pos_clickhouse
@@ -71,10 +66,7 @@ services:
     networks:
       - pos_network
 
-  # =========================
-  # Golang ELT Pipeline
-  # Airflow can run this image using DockerOperator.
-  # =========================
+# GOLANG ELT PIPELINE
   elt:
     image: pos-elt:latest
     build:
@@ -106,10 +98,7 @@ services:
     profiles:
       - manual
 
-  # =========================
-  # dbt Core + ClickHouse adapter
-  # Airflow can run this image using DockerOperator.
-  # =========================
+# DBT CORE
   dbt:
     image: pos-dbt:latest
     build:
@@ -134,10 +123,7 @@ services:
     profiles:
       - manual
 
-  # =========================
-  # Optional Data Quality Runner: Soda Core
-  # Airflow can run this image using DockerOperator.
-  # =========================
+# DATA QUALITY
   dq:
     image: pos-dq:latest
     build:
@@ -161,9 +147,7 @@ services:
     profiles:
       - manual
 
-  # =========================
-  # Airflow Metadata Database
-  # =========================
+# AIRFLOW SERVICES
   airflow_postgres:
     image: postgres:15-alpine
     container_name: airflow_postgres
@@ -181,9 +165,6 @@ services:
     networks:
       - pos_network
 
-  # =========================
-  # Airflow Init
-  # =========================
   airflow_init:
     <<: *airflow-common
     container_name: airflow_init
@@ -194,18 +175,11 @@ services:
     command: >
       bash -c "
       airflow db migrate &&
-      airflow users create
-        --username admin
-        --firstname Airflow
-        --lastname Admin
-        --role Admin
-        --email admin@example.com
-        --password admin || true
+      airflow connections create-default-connections &&
+      (airflow users create --username admin --firstname Airflow --lastname Admin --role Admin --email admin@example.com --password admin
+      || airflow users reset-password --username admin --password admin)
       "
 
-  # =========================
-  # Airflow Webserver
-  # =========================
   airflow_webserver:
     <<: *airflow-common
     container_name: airflow_webserver
@@ -220,9 +194,6 @@ services:
       - "8080:8080"
     command: webserver
 
-  # =========================
-  # Airflow Scheduler
-  # =========================
   airflow_scheduler:
     <<: *airflow-common
     container_name: airflow_scheduler
@@ -235,9 +206,7 @@ services:
         condition: service_healthy
     command: scheduler
 
-  # =========================
-  # Superset Metadata Database
-  # =========================
+# SUPERSET
   superset_postgres:
     image: postgres:15-alpine
     container_name: superset_postgres
@@ -245,6 +214,9 @@ services:
       POSTGRES_USER: superset
       POSTGRES_PASSWORD: superset
       POSTGRES_DB: superset
+      SUPERSET_SECRET_KEY: superset_secret_key_change_me
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@superset_postgres:5432/superset
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
     volumes:
       - superset_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -255,9 +227,7 @@ services:
     networks:
       - pos_network
 
-  # =========================
-  # Superset Init
-  # =========================
+
   superset_init:
     image: pos-superset:latest
     build:
@@ -272,23 +242,18 @@ services:
     environment:
       SUPERSET_SECRET_KEY: superset_secret_key_change_me
       SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@superset_postgres:5432/superset
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+    volumes:
+      - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
     command: >
       /bin/bash -c "
       superset db upgrade &&
-      superset fab create-admin
-        --username admin
-        --firstname Superset
-        --lastname Admin
-        --email admin@example.com
-        --password admin || true &&
+      (superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@example.com --password admin || true) &&
       superset init
       "
     networks:
       - pos_network
 
-  # =========================
-  # Superset Webserver
-  # =========================
   superset:
     image: pos-superset:latest
     build:
