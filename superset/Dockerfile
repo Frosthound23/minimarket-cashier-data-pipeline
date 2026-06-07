@@ -1,9 +1,9 @@
 # superset/Dockerfile
-from apache/superset:latest
+FROM apache/superset:latest
 
-user root
+USER root
 
-copy requirements.txt /app/requirements.txt
-run pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-user superset
+USER superset
