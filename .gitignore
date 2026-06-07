@@ -225,3 +225,6 @@ postgres/
 # DS_STORE
 .DS_Store
 pipeline/go.mod
+
+# Airflow
+airflow/logs/

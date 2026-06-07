@@ -1,8 +1,9 @@
-FROM apache/superset:latest
+# superset/Dockerfile
+from apache/superset:latest
 
-USER root
+user root
 
-RUN pip install --no-cache-dir \
-    "clickhouse-connect>=0.8.0"
+copy requirements.txt /app/requirements.txt
+run pip install --no-cache-dir -r /app/requirements.txt
 
-USER superset
+user superset

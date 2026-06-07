@@ -1,0 +1,17 @@
+[
+  {
+    "tenant_id": "tenant_jakarta",
+    "schema": "tenant_jakarta",
+    "store_name": "Jakarta Store"
+  },
+  {
+    "tenant_id": "tenant_bandung",
+    "schema": "tenant_bandung",
+    "store_name": "Bandung Store"
+  },
+  {
+    "tenant_id": "tenant_surabaya",
+    "schema": "tenant_surabaya",
+    "store_name": "Surabaya Store"
+  }
+]

@@ -1,0 +1,19 @@
+psycopg2-binary==2.9.9
+polars==1.41.2
+sqlalchemy==2.0.49
+clickhouse-connect==0.7.7
+dbt-core==1.10.22
+dbt-postgres==1.9.1
+# fastapi==0.136.1
+# uvicorn[standard]==0.47.0
+# sqlalchemy==2.0.49
+# psycopg2-binary==2.9.9
+# httpx==0.28.1
+# pydantic>=2.10.4,<3.0.0
+# pydantic-settings>=2.0.0,<3.0.0
+# python-dotenv==1.0.1
+# duckdb==1.5.3
+# pyarrow==24.0.0
+# dbt-core==1.10.22
+# dbt-postgres==1.9.1
+# clickhouse-connect==0.7.19
