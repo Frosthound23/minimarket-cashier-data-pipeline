@@ -31,6 +31,12 @@ services:
       - ./init-scripts/clickhouse/init_clickhouse.sql:/docker-entrypoint-initdb.d/init_clickhouse.sql
     networks:
       - minimarket_network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   jupyter:
     image: jupyter/scipy-notebook:latest
@@ -70,6 +76,23 @@ services:
       "
     networks:
       - minimarket_network
+
+  pipeline:
+    build:
+      context: ./pipeline
+    container_name: minimarket_pipeline
+    env_file:
+      - .env
+    volumes:
+      - ./pipeline:/app
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    networks:
+      - minimarket_network
+    command: ["python", "main.py"]
 
 networks:
   minimarket_network:
