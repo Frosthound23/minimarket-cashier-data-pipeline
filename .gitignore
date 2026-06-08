@@ -228,3 +228,7 @@ pipeline/go.mod
 
 # Airflow
 airflow/logs/
+logs
+
+# git
+.gitkeep
