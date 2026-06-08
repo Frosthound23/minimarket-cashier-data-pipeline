@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: dim_customer
+    description: "Customer dimension built from raw customer data."
+    columns:
+      - name: customer_key
+        description: "Primary key for the customer dimension."
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_name
+        description: "Customer full name."
+        tests:
+          - not_null
+
+  - name: dim_product
+    description: "Product dimension built from raw product data."
+    columns:
+      - name: product_key
+        description: "Primary key for the product dimension."
+        tests:
+          - not_null
+          - unique
+
+      - name: product_name
+        description: "Product name."
+        tests:
+          - not_null
+
+  - name: dim_date
+    description: "Date dimension generated from transaction dates."
+    columns:
+      - name: date_key
+        description: "Date key in YYYYMMDD format."
+        tests:
+          - not_null
+          - unique
+
+  - name: fact_sales
+    description: "Sales fact table at transaction item grain."
+    columns:
+      - name: sales_id
+        description: "Primary key for the sales fact table."
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_key
+        description: "Foreign key to dim_customer."
+        tests:
+          - not_null
+
+      - name: product_key
+        description: "Foreign key to dim_product."
+        tests:
+          - not_null
+
+      - name: date_key
+        description: "Foreign key to dim_date."
+        tests:
+          - not_null
+
+      - name: payment_method
+        description: "Payment method used in the transaction."
+        tests:
+          - accepted_values:
+              values: ["cash", "debit", "credit", "e-wallet"]

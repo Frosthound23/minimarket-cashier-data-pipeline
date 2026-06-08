@@ -1,0 +1,11 @@
+minimarket_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      schema: minimarket
+      host: clickhouse
+      port: 8123
+      user: clickhouse
+      password: clickhouse
+      secure: false
