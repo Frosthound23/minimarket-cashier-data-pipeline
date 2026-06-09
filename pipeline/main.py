@@ -5,8 +5,8 @@ import polars as pl
 from sqlalchemy import text
 
 from clients.databases import get_clickhouse_client, get_postgres_engine
-from settings import settings
 from loggings import logger
+
 
 TABLE_MAPPINGS = {
     "customers": "raw_customers",
@@ -18,14 +18,13 @@ TABLE_MAPPINGS = {
 def extract_table(postgres_engine, source_table: str) -> pl.DataFrame:
     query = text(f"select * from {source_table}")
     
-    logger.info("Extracting data from %s", source_table)
     
-    
+    logger.info("Connecting to Postgres and executing query for %s", source_table)
     with postgres_engine.connect() as conn:
         result = conn.execute(query)
         rows = result.fetchall()
         columns = list(result.keys())
-    
+    logger.info("Extracting data from %s", source_table)
     df = pl.DataFrame(rows, schema=columns, orient="row")
     return df
 

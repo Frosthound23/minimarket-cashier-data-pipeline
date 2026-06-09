@@ -1,6 +1,13 @@
 import os
+import sys
 import time
 from typing import Any
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(PROJECT_ROOT))
+
+from loggings import logger
 
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import OperationalError
@@ -20,12 +27,7 @@ def get_clickhouse_client(
     max_retries: int = 10,
     delay_seconds: int = 3,
 ) -> Any:
-    """
-    Create a ClickHouse client with retry.
-
-    Docker Compose may start the ClickHouse container before the server is
-    ready to accept HTTP connections. Retry makes the EL pipeline more robust.
-    """
+    logger.info("Starting connection to ClickHouse DB with max_retries=%d and delay_seconds=%d", max_retries, delay_seconds)
     last_error = None
 
     for attempt in range(1, max_retries + 1):
@@ -39,7 +41,7 @@ def get_clickhouse_client(
             )
 
             client.command("SELECT 1")
-            print("Connected to ClickHouse successfully")
+            logger.info("Connected to ClickHouse successfully")
             return client
 
         except Exception as error:
@@ -54,3 +56,6 @@ def get_clickhouse_client(
     raise ConnectionError(
         "Failed to connect to ClickHouse after retries"
     ) from last_error
+    
+get_postgres_engine()
+get_clickhouse_client()
