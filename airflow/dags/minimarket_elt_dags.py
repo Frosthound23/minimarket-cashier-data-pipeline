@@ -4,19 +4,25 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
+from dags_config import (
+    CLICKHOUSE_ENV,
+    NETWORK_NAME,
+    POSTGRES_ENV,
+    PROJECT_ROOT,
+)
 
 
-NETWORK_NAME = os.getenv("MINIMARKET_NETWORK_NAME", "minimarket_network")
-PROJECT_ROOT = os.getenv("PROJECT_ROOT")
-if not PROJECT_ROOT:
-    raise ValueError("PROJECT_ROOT environment variable is not set")
+# NETWORK_NAME = os.getenv("MINIMARKET_NETWORK_NAME", "minimarket_network")
+# PROJECT_ROOT = os.getenv("PROJECT_ROOT")
+# if not PROJECT_ROOT:
+#     raise ValueError("PROJECT_ROOT environment variable is not set")
 
 
 default_args = {
     "owner": "farrel",
     "description": "A DAG to orchestrate data pipeline for minimarket cashier data",
-    "retries": 1,
-    "retry_delay": timedelta(minutes=1),
+    # "retries": 1,
+    # "retry_delay": timedelta(minutes=1),
 }
 
 with DAG(
@@ -35,6 +41,7 @@ with DAG(
         network_mode=NETWORK_NAME,
         auto_remove=True,
         mount_tmp_dir=False,
+        environment={**POSTGRES_ENV, **CLICKHOUSE_ENV},
         mounts=[
             Mount(
                 source=f"{PROJECT_ROOT}/pipeline",
@@ -54,7 +61,7 @@ with DAG(
         network_mode=NETWORK_NAME,
         auto_remove=True,
         mount_tmp_dir=False,
-        # environment=CLICKHOUSE_ENV,
+        environment=CLICKHOUSE_ENV,
         mounts=[
             Mount(
                 source=f"{PROJECT_ROOT}/dbt/minimarket_dbt",
@@ -74,7 +81,7 @@ with DAG(
         network_mode=NETWORK_NAME,
         auto_remove=True,
         mount_tmp_dir=False,
-        # environment=CLICKHOUSE_ENV,
+        environment=CLICKHOUSE_ENV,
         mounts=[
             Mount(
                 source=f"{PROJECT_ROOT}/dbt/minimarket_dbt",
@@ -94,7 +101,7 @@ with DAG(
         network_mode=NETWORK_NAME,
         auto_remove=True,
         mount_tmp_dir=False,
-        # environment=CLICKHOUSE_ENV,
+        environment=CLICKHOUSE_ENV,
         mounts=[
             Mount(
                 source=f"{PROJECT_ROOT}/dbt/minimarket_dbt",
