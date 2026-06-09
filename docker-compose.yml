@@ -29,7 +29,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts/postgres/init_postgres.sql:/docker-entrypoint-initdb.d/init_postgres.sql
-      # - ./init-scripts/postgres/init_airflow.sql:/docker-entrypoint-initdb.d/init_airflow.sql
+      - ./init-scripts/postgres/seed_data.sql:/docker-entrypoint-initdb.d/seed_data.sql
     networks:
       - minimarket_network
 
@@ -61,12 +61,14 @@ services:
     container_name: minimarket_jupyter
     ports:
       - "8888:8888"
+    env_file:
+      - .env
     volumes:
       - ./notebooks:/home/jovyan/work
-    depends_on:
-      - clickhouse
     networks:
       - minimarket_network
+    depends_on:
+      - clickhouse
 
   superset:
     build:
