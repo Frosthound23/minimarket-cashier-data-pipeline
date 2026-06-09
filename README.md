@@ -201,7 +201,6 @@ AIRFLOW_POSTGRES_PASSWORD=airflow
 AIRFLOW_POSTGRES_HOST=airflow-postgres
 AIRFLOW_POSTGRES_PORT=5432
 AIRFLOW_WEBSERVER_SECRET_KEY=airflowsecretkey
-AIRFLOW_FERNET_KEY=airflowfernetkey
 PROJECT_ROOT=//Users/Farrel/code/repos/minimarket-cashier-data-pipeline
 
 JUPYTER_TOKEN=admin
@@ -422,7 +421,7 @@ networks:
 Video walkthrough link:
 
 ```text
-<insert YouTube unlisted or Google Drive link here>
+https://youtu.be/6XRu6hsudcs
 ```
 
 The video demonstrates:
