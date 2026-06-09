@@ -31,12 +31,13 @@ flowchart TD
     C --> D[dbt Staging Models]
     D --> E[dbt Mart Models]
     E --> F[Jupyter Notebook Visualization]
-    E --> G[Apache Superset (NOT BEING USED RIGHT NOW JUST FOR SAFE KEEPING in the Intermediate-Level)]
+    E --> G["Apache Superset<br/>Prepared for Intermediate Level"]
 
     H[Apache Airflow] --> B
     H --> D
     H --> E
 ```
+
 
 ## 4. Data Flow
 
