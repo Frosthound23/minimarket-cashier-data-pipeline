@@ -115,24 +115,36 @@ minimarket-cashier-data-pipeline/
 |               ├── dim_customer.sql
 |               ├── dim_date.sql
 |               ├── dim_product.sql
-|               └── fact+sales.sql
+|               └── fact_sales.sql
 |               
 │
 ├── init-scripts/
+|   ├── airflow/
+|   |   └── init_airflow.sh
 │   ├── postgres/
+|   |   ├── seed_data.sql        
 │   │   └── init_postgres.sql
 │   ├── clickhouse/
 │   │   └── init_clickhouse.sql
 │   └── dbt/
+|       └── init_dbt.sh
 │
+├── logs/
+|
 ├── notebooks/
 │   └── analysis.ipynb
 │
 ├── pipeline/
 │   ├── Dockerfile
 │   ├── requirements.txt
+|   ├── loggings.py
 │   ├── main.py
-│   └── settings.py
+│   ├── settings.py
+|   ├── clients/
+|   |   └── databases.py
+|   └── config/
+|       └── tenants.json
+|   
 │
 └── superset/
     ├── Dockerfile
