@@ -12,11 +12,6 @@ from dags_config import (
 )
 
 
-# NETWORK_NAME = os.getenv("MINIMARKET_NETWORK_NAME", "minimarket_network")
-# PROJECT_ROOT = os.getenv("PROJECT_ROOT")
-# if not PROJECT_ROOT:
-#     raise ValueError("PROJECT_ROOT environment variable is not set")
-
 
 default_args = {
     "owner": "farrel",
