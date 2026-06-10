@@ -8,6 +8,7 @@ import (
 	"minimarket-go-pipeline/internal/databases"
 	"minimarket-go-pipeline/internal/extractor"
 	"minimarket-go-pipeline/internal/loader"
+	"minimarket-go-pipeline/internal/watermark"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -38,8 +39,13 @@ func main() {
 	postgresExtractor := extractor.NewPostgresExtractor(postgresDB)
 	clickhouseLoader := loader.NewClickHouseLoader(clickhouseConn)
 
-	pipeline := app.NewPipeline(postgresExtractor, clickhouseLoader)
+	watermarkStore := watermark.NewStore(clickhouseConn)
 
+	pipeline := app.NewPipeline(
+		postgresExtractor,
+		clickhouseLoader,
+		watermarkStore,
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 

@@ -4,25 +4,30 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
+	"time"
+
 	"minimarket-go-pipeline/internal/extractor"
 	"minimarket-go-pipeline/internal/loader"
 	"minimarket-go-pipeline/internal/models"
-	"sync"
-	"time"
+	"minimarket-go-pipeline/internal/watermark"
 )
 
 type Pipeline struct {
-	extractor *extractor.PostgresExtractor
-	loader    *loader.ClickHouseLoader
+	extractor      *extractor.PostgresExtractor
+	loader         *loader.ClickHouseLoader
+	watermarkStore *watermark.Store
 }
 
 func NewPipeline(
 	extractor *extractor.PostgresExtractor,
 	loader *loader.ClickHouseLoader,
+	watermarkStore *watermark.Store,
 ) *Pipeline {
 	return &Pipeline{
-		extractor: extractor,
-		loader:    loader,
+		extractor:      extractor,
+		loader:         loader,
+		watermarkStore: watermarkStore,
 	}
 }
 
@@ -64,7 +69,69 @@ func (p *Pipeline) runTenant(ctx context.Context, tenant models.Tenant) error {
 
 	log.Printf("starting tenant=%s schema=%s", tenant.TenantID, tenant.Schema)
 
-	customers, err := p.extractor.ExtractCustomers(ctx, tenant)
+	if err := p.loadIncrementalCustomers(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.loadIncrementalProducts(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.loadIncrementalSuppliers(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.loadIncrementalTransactions(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.clearFullRefreshTables(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.loadFullRefreshStores(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.loadFullRefreshPromotions(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.loadFullRefreshTransactionItems(ctx, tenant); err != nil {
+		return err
+	}
+
+	if err := p.loadFullRefreshTransactionPromotions(ctx, tenant); err != nil {
+		return err
+	}
+
+	log.Printf(
+		"finished tenant=%s duration=%s",
+		tenant.TenantID,
+		time.Since(startedAt),
+	)
+
+	return nil
+}
+
+func (p *Pipeline) loadIncrementalCustomers(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
+	lastWatermark, err := p.watermarkStore.GetWatermark(
+		ctx,
+		tenant.TenantID,
+		"customers",
+	)
+	if err != nil {
+		return err
+	}
+
+	customers, newWatermark, err := p.extractor.ExtractCustomers(
+		ctx,
+		tenant,
+		lastWatermark,
+	)
 	if err != nil {
 		return err
 	}
@@ -73,9 +140,47 @@ func (p *Pipeline) runTenant(ctx context.Context, tenant models.Tenant) error {
 		return err
 	}
 
-	log.Printf("loaded customers tenant=%s rows=%d", tenant.TenantID, len(customers))
+	if len(customers) > 0 {
+		if err := p.watermarkStore.UpdateWatermark(
+			ctx,
+			tenant.TenantID,
+			"customers",
+			"created_at",
+			newWatermark,
+		); err != nil {
+			return err
+		}
+	}
 
-	products, err := p.extractor.ExtractProducts(ctx, tenant)
+	log.Printf(
+		"loaded customers tenant=%s rows=%d previous_watermark=%s new_watermark=%s",
+		tenant.TenantID,
+		len(customers),
+		lastWatermark.Format(time.RFC3339),
+		newWatermark.Format(time.RFC3339),
+	)
+
+	return nil
+}
+
+func (p *Pipeline) loadIncrementalProducts(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
+	lastWatermark, err := p.watermarkStore.GetWatermark(
+		ctx,
+		tenant.TenantID,
+		"products",
+	)
+	if err != nil {
+		return err
+	}
+
+	products, newWatermark, err := p.extractor.ExtractProducts(
+		ctx,
+		tenant,
+		lastWatermark,
+	)
 	if err != nil {
 		return err
 	}
@@ -84,8 +189,155 @@ func (p *Pipeline) runTenant(ctx context.Context, tenant models.Tenant) error {
 		return err
 	}
 
-	log.Printf("loaded products tenant=%s rows=%d", tenant.TenantID, len(products))
+	if len(products) > 0 {
+		if err := p.watermarkStore.UpdateWatermark(
+			ctx,
+			tenant.TenantID,
+			"products",
+			"created_at",
+			newWatermark,
+		); err != nil {
+			return err
+		}
+	}
 
+	log.Printf(
+		"loaded products tenant=%s rows=%d previous_watermark=%s new_watermark=%s",
+		tenant.TenantID,
+		len(products),
+		lastWatermark.Format(time.RFC3339),
+		newWatermark.Format(time.RFC3339),
+	)
+
+	return nil
+}
+
+func (p *Pipeline) loadIncrementalSuppliers(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
+	lastWatermark, err := p.watermarkStore.GetWatermark(
+		ctx,
+		tenant.TenantID,
+		"suppliers",
+	)
+	if err != nil {
+		return err
+	}
+
+	suppliers, newWatermark, err := p.extractor.ExtractSuppliers(
+		ctx,
+		tenant,
+		lastWatermark,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loader.LoadSuppliers(ctx, suppliers); err != nil {
+		return err
+	}
+
+	if len(suppliers) > 0 {
+		if err := p.watermarkStore.UpdateWatermark(
+			ctx,
+			tenant.TenantID,
+			"suppliers",
+			"created_at",
+			newWatermark,
+		); err != nil {
+			return err
+		}
+	}
+
+	log.Printf(
+		"loaded suppliers tenant=%s rows=%d previous_watermark=%s new_watermark=%s",
+		tenant.TenantID,
+		len(suppliers),
+		lastWatermark.Format(time.RFC3339),
+		newWatermark.Format(time.RFC3339),
+	)
+
+	return nil
+}
+
+func (p *Pipeline) loadIncrementalTransactions(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
+	lastWatermark, err := p.watermarkStore.GetWatermark(
+		ctx,
+		tenant.TenantID,
+		"transactions",
+	)
+	if err != nil {
+		return err
+	}
+
+	transactions, newWatermark, err := p.extractor.ExtractTransactions(
+		ctx,
+		tenant,
+		lastWatermark,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loader.LoadTransactions(ctx, transactions); err != nil {
+		return err
+	}
+
+	if len(transactions) > 0 {
+		if err := p.watermarkStore.UpdateWatermark(
+			ctx,
+			tenant.TenantID,
+			"transactions",
+			"transaction_date",
+			newWatermark,
+		); err != nil {
+			return err
+		}
+	}
+
+	log.Printf(
+		"loaded transactions tenant=%s rows=%d previous_watermark=%s new_watermark=%s",
+		tenant.TenantID,
+		len(transactions),
+		lastWatermark.Format(time.RFC3339),
+		newWatermark.Format(time.RFC3339),
+	)
+
+	return nil
+}
+
+func (p *Pipeline) clearFullRefreshTables(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
+	fullRefreshTables := []string{
+		"raw_stores",
+		"raw_promotions",
+		"raw_transaction_items",
+		"raw_transaction_promotions",
+	}
+
+	if err := p.loader.ClearTenantTables(
+		ctx,
+		tenant.TenantID,
+		fullRefreshTables,
+	); err != nil {
+		return err
+	}
+
+	log.Printf("cleared full-refresh tables tenant=%s", tenant.TenantID)
+
+	return nil
+}
+
+func (p *Pipeline) loadFullRefreshStores(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
 	stores, err := p.extractor.ExtractStores(ctx, tenant)
 	if err != nil {
 		return err
@@ -97,6 +349,13 @@ func (p *Pipeline) runTenant(ctx context.Context, tenant models.Tenant) error {
 
 	log.Printf("loaded stores tenant=%s rows=%d", tenant.TenantID, len(stores))
 
+	return nil
+}
+
+func (p *Pipeline) loadFullRefreshPromotions(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
 	promotions, err := p.extractor.ExtractPromotions(ctx, tenant)
 	if err != nil {
 		return err
@@ -108,21 +367,48 @@ func (p *Pipeline) runTenant(ctx context.Context, tenant models.Tenant) error {
 
 	log.Printf("loaded promotions tenant=%s rows=%d", tenant.TenantID, len(promotions))
 
-	suppliers, err := p.extractor.ExtractSuppliers(ctx, tenant)
+	return nil
+}
+
+func (p *Pipeline) loadFullRefreshTransactionItems(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
+	transactionItems, err := p.extractor.ExtractTransactionItems(ctx, tenant)
 	if err != nil {
 		return err
 	}
 
-	if err := p.loader.LoadSuppliers(ctx, suppliers); err != nil {
+	if err := p.loader.LoadTransactionItems(ctx, transactionItems); err != nil {
 		return err
 	}
 
-	log.Printf("loaded suppliers tenant=%s rows=%d", tenant.TenantID, len(suppliers))
+	log.Printf(
+		"loaded transaction_items tenant=%s rows=%d",
+		tenant.TenantID,
+		len(transactionItems),
+	)
+
+	return nil
+}
+
+func (p *Pipeline) loadFullRefreshTransactionPromotions(
+	ctx context.Context,
+	tenant models.Tenant,
+) error {
+	transactionPromotions, err := p.extractor.ExtractTransactionPromotions(ctx, tenant)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loader.LoadTransactionPromotions(ctx, transactionPromotions); err != nil {
+		return err
+	}
 
 	log.Printf(
-		"finished tenant=%s duration=%s",
+		"loaded transaction_promotions tenant=%s rows=%d",
 		tenant.TenantID,
-		time.Since(startedAt),
+		len(transactionPromotions),
 	)
 
 	return nil

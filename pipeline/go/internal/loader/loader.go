@@ -2,12 +2,26 @@ package loader
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+
 	"minimarket-go-pipeline/internal/helper"
 	"minimarket-go-pipeline/internal/models"
 
 	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/shopspring/decimal"
 )
+
+var allowedRawTables = map[string]struct{}{
+	"raw_customers":              {},
+	"raw_products":               {},
+	"raw_stores":                 {},
+	"raw_promotions":             {},
+	"raw_suppliers":              {},
+	"raw_transactions":           {},
+	"raw_transaction_items":      {},
+	"raw_transaction_promotions": {},
+}
 
 type ClickHouseLoader struct {
 	conn clickhouse.Conn
@@ -19,6 +33,48 @@ func NewClickHouseLoader(conn clickhouse.Conn) *ClickHouseLoader {
 	}
 }
 
+func (l *ClickHouseLoader) ClearTenantTables(
+	ctx context.Context,
+	tenantID string,
+	tables []string,
+) error {
+	for _, table := range tables {
+		if _, ok := allowedRawTables[table]; !ok {
+			return fmt.Errorf("table %s is not allowed to be cleared", table)
+		}
+
+		query := fmt.Sprintf(
+			"ALTER TABLE %s DELETE WHERE tenant_id = ?",
+			table,
+		)
+
+		if err := l.conn.Exec(ctx, query, tenantID); err != nil {
+			return fmt.Errorf(
+				"failed to clear table %s for tenant %s: %w",
+				table,
+				tenantID,
+				err,
+			)
+		}
+	}
+
+	return nil
+}
+
+func (l *ClickHouseLoader) ClearFullRefreshTables(
+	ctx context.Context,
+	tenantID string,
+) error {
+	fullRefreshTables := []string{
+		"raw_stores",
+		"raw_promotions",
+		"raw_transaction_items",
+		"raw_transaction_promotions",
+	}
+
+	return l.ClearTenantTables(ctx, tenantID, fullRefreshTables)
+}
+
 func (l *ClickHouseLoader) LoadCustomers(
 	ctx context.Context,
 	customers []models.Customer,
@@ -27,9 +83,7 @@ func (l *ClickHouseLoader) LoadCustomers(
 		return nil
 	}
 
-	batch, err := l.conn.PrepareBatch(
-		ctx,
-		`
+	batch, err := l.conn.PrepareBatch(ctx, `
 		INSERT INTO raw_customers (
 			tenant_id,
 			customer_id,
@@ -41,8 +95,7 @@ func (l *ClickHouseLoader) LoadCustomers(
 			created_at,
 			loaded_at
 		)
-		`,
-	)
+	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare raw_customers batch: %w", err)
 	}
@@ -59,7 +112,7 @@ func (l *ClickHouseLoader) LoadCustomers(
 			customer.CreatedAt,
 			customer.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append customer row: %w", err)
+			return fmt.Errorf("failed to append customer row tenant=%s customer_id=%d: %w", customer.TenantID, customer.CustomerID, err)
 		}
 	}
 
@@ -96,18 +149,23 @@ func (l *ClickHouseLoader) LoadProducts(
 	}
 
 	for _, product := range products {
+		unitPrice, err := decimalFromString(product.UnitPrice)
+		if err != nil {
+			return fmt.Errorf("invalid unit_price tenant=%s product_id=%d: %w", product.TenantID, product.ProductID, err)
+		}
+
 		if err := batch.Append(
 			product.TenantID,
 			int32(product.ProductID),
 			product.ProductName,
 			helper.NullableStringSQL(product.Category),
 			helper.NullableStringSQL(product.Brand),
-			product.UnitPrice,
+			unitPrice,
 			product.IsActive,
 			product.CreatedAt,
 			product.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append product row: %w", err)
+			return fmt.Errorf("failed to append product row tenant=%s product_id=%d: %w", product.TenantID, product.ProductID, err)
 		}
 	}
 
@@ -155,7 +213,7 @@ func (l *ClickHouseLoader) LoadStores(
 			store.IsActive,
 			store.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append store row: %w", err)
+			return fmt.Errorf("failed to append store row tenant=%s store_id=%d: %w", store.TenantID, store.StoreID, err)
 		}
 	}
 
@@ -192,18 +250,28 @@ func (l *ClickHouseLoader) LoadPromotions(
 	}
 
 	for _, promotion := range promotions {
+		discountPct, err := nullableDecimalFromSQLString(promotion.DiscountPct)
+		if err != nil {
+			return fmt.Errorf("invalid discount_pct tenant=%s promo_id=%d: %w", promotion.TenantID, promotion.PromoID, err)
+		}
+
+		minPurchase, err := decimalFromString(promotion.MinPurchase)
+		if err != nil {
+			return fmt.Errorf("invalid min_purchase tenant=%s promo_id=%d: %w", promotion.TenantID, promotion.PromoID, err)
+		}
+
 		if err := batch.Append(
 			promotion.TenantID,
 			int32(promotion.PromoID),
 			helper.NullableStringSQL(promotion.PromoName),
 			helper.NullableStringSQL(promotion.PromoType),
-			helper.NullableStringSQL(promotion.DiscountPct),
+			discountPct,
 			helper.NullableTimeSQL(promotion.StartDate),
 			helper.NullableTimeSQL(promotion.EndDate),
-			promotion.MinPurchase,
+			minPurchase,
 			promotion.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append promotion row: %w", err)
+			return fmt.Errorf("failed to append promotion row tenant=%s promo_id=%d: %w", promotion.TenantID, promotion.PromoID, err)
 		}
 	}
 
@@ -249,7 +317,7 @@ func (l *ClickHouseLoader) LoadSuppliers(
 			supplier.CreatedAt,
 			supplier.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append supplier row: %w", err)
+			return fmt.Errorf("failed to append supplier row tenant=%s supplier_id=%d: %w", supplier.TenantID, supplier.SupplierID, err)
 		}
 	}
 
@@ -286,18 +354,23 @@ func (l *ClickHouseLoader) LoadTransactions(
 	}
 
 	for _, transaction := range transactions {
+		totalAmount, err := decimalFromString(transaction.TotalAmount)
+		if err != nil {
+			return fmt.Errorf("invalid total_amount tenant=%s transaction_id=%d: %w", transaction.TenantID, transaction.TransactionID, err)
+		}
+
 		if err := batch.Append(
 			transaction.TenantID,
 			int32(transaction.TransactionID),
 			helper.NullableInt32SQL(transaction.CustomerID),
 			helper.NullableInt32SQL(transaction.StoreID),
 			transaction.TransactionDate,
-			transaction.TotalAmount,
+			totalAmount,
 			helper.NullableStringSQL(transaction.PaymentMethod),
 			helper.NullableStringSQL(transaction.Status),
 			transaction.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append transaction row: %w", err)
+			return fmt.Errorf("failed to append transaction row tenant=%s transaction_id=%d: %w", transaction.TenantID, transaction.TransactionID, err)
 		}
 	}
 
@@ -334,18 +407,33 @@ func (l *ClickHouseLoader) LoadTransactionItems(
 	}
 
 	for _, item := range items {
+		unitPrice, err := decimalFromString(item.UnitPrice)
+		if err != nil {
+			return fmt.Errorf("invalid unit_price tenant=%s item_id=%d: %w", item.TenantID, item.ItemID, err)
+		}
+
+		discount, err := decimalFromString(item.Discount)
+		if err != nil {
+			return fmt.Errorf("invalid discount tenant=%s item_id=%d: %w", item.TenantID, item.ItemID, err)
+		}
+
+		subtotal, err := decimalFromString(item.Subtotal)
+		if err != nil {
+			return fmt.Errorf("invalid subtotal tenant=%s item_id=%d: %w", item.TenantID, item.ItemID, err)
+		}
+
 		if err := batch.Append(
 			item.TenantID,
 			int32(item.ItemID),
 			helper.NullableInt32SQL(item.TransactionID),
 			helper.NullableInt32SQL(item.ProductID),
 			int32(item.Quantity),
-			item.UnitPrice,
-			item.Discount,
-			item.Subtotal,
+			unitPrice,
+			discount,
+			subtotal,
 			item.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append transaction_item row: %w", err)
+			return fmt.Errorf("failed to append transaction_item row tenant=%s item_id=%d: %w", item.TenantID, item.ItemID, err)
 		}
 	}
 
@@ -379,15 +467,20 @@ func (l *ClickHouseLoader) LoadTransactionPromotions(
 	}
 
 	for _, promotion := range promotions {
+		discountApplied, err := nullableDecimalFromSQLString(promotion.DiscountApplied)
+		if err != nil {
+			return fmt.Errorf("invalid discount_applied tenant=%s id=%d: %w", promotion.TenantID, promotion.ID, err)
+		}
+
 		if err := batch.Append(
 			promotion.TenantID,
 			int32(promotion.ID),
 			helper.NullableInt32SQL(promotion.TransactionID),
 			helper.NullableInt32SQL(promotion.PromoID),
-			helper.NullableStringSQL(promotion.DiscountApplied),
+			discountApplied,
 			promotion.LoadedAt,
 		); err != nil {
-			return fmt.Errorf("failed to append transaction_promotion row: %w", err)
+			return fmt.Errorf("failed to append transaction_promotion row tenant=%s id=%d: %w", promotion.TenantID, promotion.ID, err)
 		}
 	}
 
@@ -396,4 +489,30 @@ func (l *ClickHouseLoader) LoadTransactionPromotions(
 	}
 
 	return nil
+}
+
+func decimalFromString(value string) (decimal.Decimal, error) {
+	if value == "" {
+		return decimal.Zero, nil
+	}
+
+	parsedValue, err := decimal.NewFromString(value)
+	if err != nil {
+		return decimal.Decimal{}, err
+	}
+
+	return parsedValue, nil
+}
+
+func nullableDecimalFromSQLString(value sql.NullString) (*decimal.Decimal, error) {
+	if !value.Valid {
+		return nil, nil
+	}
+
+	parsedValue, err := decimal.NewFromString(value.String)
+	if err != nil {
+		return nil, err
+	}
+
+	return &parsedValue, nil
 }

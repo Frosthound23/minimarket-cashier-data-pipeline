@@ -4,10 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
-	"minimarket-go-pipeline/internal/models"
+	"regexp"
 	"time"
+
+	"github.com/lib/pq"
+
+	"minimarket-go-pipeline/internal/models"
 )
+
+var validSchemaName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 type PostgresExtractor struct {
 	db *sql.DB
@@ -17,11 +22,24 @@ func NewPostgresExtractor(db *sql.DB) *PostgresExtractor {
 	return &PostgresExtractor{db: db}
 }
 
+func qualifiedTenantTable(tenant models.Tenant, tableName string) (string, error) {
+	if !validSchemaName.MatchString(tenant.Schema) {
+		return "", fmt.Errorf("invalid schema name for tenant %s: %s", tenant.TenantID, tenant.Schema)
+	}
+
+	return fmt.Sprintf("%s.%s", pq.QuoteIdentifier(tenant.Schema), pq.QuoteIdentifier(tableName)), nil
+}
+
 func (e *PostgresExtractor) ExtractCustomers(
 	ctx context.Context,
 	tenant models.Tenant,
-) ([]models.Customer, error) {
-	log.Println("extracting customers for tenant", tenant.TenantID)
+	lastWatermark time.Time,
+) ([]models.Customer, time.Time, error) {
+	tableName, err := qualifiedTenantTable(tenant, "customers")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			customer_id,
@@ -31,18 +49,20 @@ func (e *PostgresExtractor) ExtractCustomers(
 			gender,
 			city,
 			created_at
-		FROM %s.customers
-		ORDER BY customer_id
-	`, tenant.Schema)
+		FROM %s
+		WHERE created_at > $1
+		ORDER BY created_at, customer_id
+	`, tableName)
 
-	rows, err := e.db.QueryContext(ctx, query)
+	rows, err := e.db.QueryContext(ctx, query, lastWatermark)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract customers for tenant %s: %w", tenant.TenantID, err)
+		return nil, time.Time{}, fmt.Errorf("failed to extract customers for tenant %s: %w", tenant.TenantID, err)
 	}
 	defer rows.Close()
 
 	loadedAt := time.Now().UTC()
 	customers := make([]models.Customer, 0)
+	maxWatermark := lastWatermark
 
 	for rows.Next() {
 		var customer models.Customer
@@ -59,23 +79,33 @@ func (e *PostgresExtractor) ExtractCustomers(
 			&customer.City,
 			&customer.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan customer row for tenant %s: %w", tenant.TenantID, err)
+			return nil, time.Time{}, fmt.Errorf("failed to scan customer row for tenant %s: %w", tenant.TenantID, err)
+		}
+
+		if customer.CreatedAt.After(maxWatermark) {
+			maxWatermark = customer.CreatedAt
 		}
 
 		customers = append(customers, customer)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("customer row iteration failed for tenant %s: %w", tenant.TenantID, err)
+		return nil, time.Time{}, fmt.Errorf("customer row iteration failed for tenant %s: %w", tenant.TenantID, err)
 	}
 
-	return customers, nil
+	return customers, maxWatermark, nil
 }
 
 func (e *PostgresExtractor) ExtractProducts(
 	ctx context.Context,
 	tenant models.Tenant,
-) ([]models.Product, error) {
+	lastWatermark time.Time,
+) ([]models.Product, time.Time, error) {
+	tableName, err := qualifiedTenantTable(tenant, "products")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			product_id,
@@ -85,18 +115,20 @@ func (e *PostgresExtractor) ExtractProducts(
 			unit_price::text,
 			is_active,
 			created_at
-		FROM %s.products
-		ORDER BY product_id
-	`, tenant.Schema)
+		FROM %s
+		WHERE created_at > $1
+		ORDER BY created_at, product_id
+	`, tableName)
 
-	rows, err := e.db.QueryContext(ctx, query)
+	rows, err := e.db.QueryContext(ctx, query, lastWatermark)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract products for tenant %s: %w", tenant.TenantID, err)
+		return nil, time.Time{}, fmt.Errorf("failed to extract products for tenant %s: %w", tenant.TenantID, err)
 	}
 	defer rows.Close()
 
 	loadedAt := time.Now().UTC()
 	products := make([]models.Product, 0)
+	maxWatermark := lastWatermark
 
 	for rows.Next() {
 		var product models.Product
@@ -113,23 +145,32 @@ func (e *PostgresExtractor) ExtractProducts(
 			&product.IsActive,
 			&product.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan product row for tenant %s: %w", tenant.TenantID, err)
+			return nil, time.Time{}, fmt.Errorf("failed to scan product row for tenant %s: %w", tenant.TenantID, err)
+		}
+
+		if product.CreatedAt.After(maxWatermark) {
+			maxWatermark = product.CreatedAt
 		}
 
 		products = append(products, product)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("product row iteration failed for tenant %s: %w", tenant.TenantID, err)
+		return nil, time.Time{}, fmt.Errorf("product row iteration failed for tenant %s: %w", tenant.TenantID, err)
 	}
 
-	return products, nil
+	return products, maxWatermark, nil
 }
 
 func (e *PostgresExtractor) ExtractStores(
 	ctx context.Context,
 	tenant models.Tenant,
 ) ([]models.Store, error) {
+	tableName, err := qualifiedTenantTable(tenant, "stores")
+	if err != nil {
+		return nil, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			store_id,
@@ -139,9 +180,9 @@ func (e *PostgresExtractor) ExtractStores(
 			store_type,
 			opened_at,
 			is_active
-		FROM %s.stores
+		FROM %s
 		ORDER BY store_id
-	`, tenant.Schema)
+	`, tableName)
 
 	rows, err := e.db.QueryContext(ctx, query)
 	if err != nil {
@@ -184,6 +225,11 @@ func (e *PostgresExtractor) ExtractPromotions(
 	ctx context.Context,
 	tenant models.Tenant,
 ) ([]models.Promotion, error) {
+	tableName, err := qualifiedTenantTable(tenant, "promotions")
+	if err != nil {
+		return nil, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			promo_id,
@@ -193,9 +239,9 @@ func (e *PostgresExtractor) ExtractPromotions(
 			start_date,
 			end_date,
 			min_purchase::text
-		FROM %s.promotions
+		FROM %s
 		ORDER BY promo_id
-	`, tenant.Schema)
+	`, tableName)
 
 	rows, err := e.db.QueryContext(ctx, query)
 	if err != nil {
@@ -237,7 +283,13 @@ func (e *PostgresExtractor) ExtractPromotions(
 func (e *PostgresExtractor) ExtractSuppliers(
 	ctx context.Context,
 	tenant models.Tenant,
-) ([]models.Supplier, error) {
+	lastWatermark time.Time,
+) ([]models.Supplier, time.Time, error) {
+	tableName, err := qualifiedTenantTable(tenant, "suppliers")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			supplier_id,
@@ -246,18 +298,20 @@ func (e *PostgresExtractor) ExtractSuppliers(
 			city,
 			country,
 			created_at
-		FROM %s.suppliers
-		ORDER BY supplier_id
-	`, tenant.Schema)
+		FROM %s
+		WHERE created_at > $1
+		ORDER BY created_at, supplier_id
+	`, tableName)
 
-	rows, err := e.db.QueryContext(ctx, query)
+	rows, err := e.db.QueryContext(ctx, query, lastWatermark)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract suppliers for tenant %s: %w", tenant.TenantID, err)
+		return nil, time.Time{}, fmt.Errorf("failed to extract suppliers for tenant %s: %w", tenant.TenantID, err)
 	}
 	defer rows.Close()
 
 	loadedAt := time.Now().UTC()
 	suppliers := make([]models.Supplier, 0)
+	maxWatermark := lastWatermark
 
 	for rows.Next() {
 		var supplier models.Supplier
@@ -273,23 +327,33 @@ func (e *PostgresExtractor) ExtractSuppliers(
 			&supplier.Country,
 			&supplier.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan supplier row for tenant %s: %w", tenant.TenantID, err)
+			return nil, time.Time{}, fmt.Errorf("failed to scan supplier row for tenant %s: %w", tenant.TenantID, err)
+		}
+
+		if supplier.CreatedAt.After(maxWatermark) {
+			maxWatermark = supplier.CreatedAt
 		}
 
 		suppliers = append(suppliers, supplier)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("supplier row iteration failed for tenant %s: %w", tenant.TenantID, err)
+		return nil, time.Time{}, fmt.Errorf("supplier row iteration failed for tenant %s: %w", tenant.TenantID, err)
 	}
 
-	return suppliers, nil
+	return suppliers, maxWatermark, nil
 }
 
 func (e *PostgresExtractor) ExtractTransactions(
 	ctx context.Context,
 	tenant models.Tenant,
-) ([]models.Transaction, error) {
+	lastWatermark time.Time,
+) ([]models.Transaction, time.Time, error) {
+	tableName, err := qualifiedTenantTable(tenant, "transactions")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			transaction_id,
@@ -299,22 +363,20 @@ func (e *PostgresExtractor) ExtractTransactions(
 			total_amount::text,
 			payment_method,
 			status
-		FROM %s.transactions
-		ORDER BY transaction_id
-	`, tenant.Schema)
+		FROM %s
+		WHERE transaction_date > $1
+		ORDER BY transaction_date, transaction_id
+	`, tableName)
 
-	rows, err := e.db.QueryContext(ctx, query)
+	rows, err := e.db.QueryContext(ctx, query, lastWatermark)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to extract transactions for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, time.Time{}, fmt.Errorf("failed to extract transactions for tenant %s: %w", tenant.TenantID, err)
 	}
 	defer rows.Close()
 
 	loadedAt := time.Now().UTC()
 	transactions := make([]models.Transaction, 0)
+	maxWatermark := lastWatermark
 
 	for rows.Next() {
 		var transaction models.Transaction
@@ -331,31 +393,32 @@ func (e *PostgresExtractor) ExtractTransactions(
 			&transaction.PaymentMethod,
 			&transaction.Status,
 		); err != nil {
-			return nil, fmt.Errorf(
-				"failed to scan transaction row for tenant %s: %w",
-				tenant.TenantID,
-				err,
-			)
+			return nil, time.Time{}, fmt.Errorf("failed to scan transaction row for tenant %s: %w", tenant.TenantID, err)
+		}
+
+		if transaction.TransactionDate.After(maxWatermark) {
+			maxWatermark = transaction.TransactionDate
 		}
 
 		transactions = append(transactions, transaction)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf(
-			"transaction row iteration failed for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, time.Time{}, fmt.Errorf("transaction row iteration failed for tenant %s: %w", tenant.TenantID, err)
 	}
 
-	return transactions, nil
+	return transactions, maxWatermark, nil
 }
 
 func (e *PostgresExtractor) ExtractTransactionItems(
 	ctx context.Context,
 	tenant models.Tenant,
 ) ([]models.TransactionItem, error) {
+	tableName, err := qualifiedTenantTable(tenant, "transaction_items")
+	if err != nil {
+		return nil, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			item_id,
@@ -365,17 +428,13 @@ func (e *PostgresExtractor) ExtractTransactionItems(
 			unit_price::text,
 			discount::text,
 			subtotal::text
-		FROM %s.transaction_items
+		FROM %s
 		ORDER BY item_id
-	`, tenant.Schema)
+	`, tableName)
 
 	rows, err := e.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to extract transaction_items for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, fmt.Errorf("failed to extract transaction_items for tenant %s: %w", tenant.TenantID, err)
 	}
 	defer rows.Close()
 
@@ -397,22 +456,14 @@ func (e *PostgresExtractor) ExtractTransactionItems(
 			&item.Discount,
 			&item.Subtotal,
 		); err != nil {
-			return nil, fmt.Errorf(
-				"failed to scan transaction_item row for tenant %s: %w",
-				tenant.TenantID,
-				err,
-			)
+			return nil, fmt.Errorf("failed to scan transaction_item row for tenant %s: %w", tenant.TenantID, err)
 		}
 
 		items = append(items, item)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf(
-			"transaction_item row iteration failed for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, fmt.Errorf("transaction_item row iteration failed for tenant %s: %w", tenant.TenantID, err)
 	}
 
 	return items, nil
@@ -422,23 +473,24 @@ func (e *PostgresExtractor) ExtractTransactionPromotions(
 	ctx context.Context,
 	tenant models.Tenant,
 ) ([]models.TransactionPromotion, error) {
+	tableName, err := qualifiedTenantTable(tenant, "transaction_promotions")
+	if err != nil {
+		return nil, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			id,
 			transaction_id,
 			promo_id,
 			discount_applied::text
-		FROM %s.transaction_promotions
+		FROM %s
 		ORDER BY id
-	`, tenant.Schema)
+	`, tableName)
 
 	rows, err := e.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to extract transaction_promotions for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, fmt.Errorf("failed to extract transaction_promotions for tenant %s: %w", tenant.TenantID, err)
 	}
 	defer rows.Close()
 
@@ -457,22 +509,14 @@ func (e *PostgresExtractor) ExtractTransactionPromotions(
 			&promotion.PromoID,
 			&promotion.DiscountApplied,
 		); err != nil {
-			return nil, fmt.Errorf(
-				"failed to scan transaction_promotion row for tenant %s: %w",
-				tenant.TenantID,
-				err,
-			)
+			return nil, fmt.Errorf("failed to scan transaction_promotion row for tenant %s: %w", tenant.TenantID, err)
 		}
 
 		promotions = append(promotions, promotion)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf(
-			"transaction_promotion row iteration failed for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, fmt.Errorf("transaction_promotion row iteration failed for tenant %s: %w", tenant.TenantID, err)
 	}
 
 	return promotions, nil
