@@ -1,6 +1,9 @@
 package helper
 
-import "database/sql"
+import (
+	"database/sql"
+	"time"
+)
 
 func NullableStringSQL(value sql.NullString) *string {
 	if !value.Valid {
@@ -24,4 +27,21 @@ func NullStringToPointer(value interface{}) interface{} {
 	default:
 		return value
 	}
+}
+
+func NullableTimeSQL(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+
+	return &value.Time
+}
+
+func NullableInt32SQL(value sql.NullInt64) *int32 {
+	if !value.Valid {
+		return nil
+	}
+
+	v := int32(value.Int64)
+	return &v
 }
