@@ -1,39 +1,34 @@
-with transactions as (
+{{ config(materialized='table') }}
 
-    select *
-    from {{ ref('stg_transactions') }}
+select
+    concat(ti.tenant_id, '-', toString(ti.item_id)) as sales_key,
 
-),
+    ti.tenant_id,
 
-transaction_items as (
+    concat(t.tenant_id, '-', toString(t.transaction_id)) as transaction_key,
+    concat(t.tenant_id, '-', toString(t.customer_id)) as customer_key,
+    concat(t.tenant_id, '-', toString(t.store_id)) as store_key,
+    concat(ti.tenant_id, '-', toString(ti.product_id)) as product_key,
 
-    select *
-    from {{ ref('stg_transaction_items') }}
+    t.transaction_id,
+    ti.item_id,
+    t.customer_id,
+    t.store_id,
+    ti.product_id,
 
-),
+    t.transaction_date,
+    t.transaction_date_key,
 
-final as (
+    t.payment_method,
+    t.status,
 
-    select
-        ti.item_id as sales_id,
-        t.transaction_id as transaction_id,
-        ti.item_id as item_id,
-        t.customer_id as customer_key,
-        ti.product_id as product_key,
-        toYYYYMMDD(toDate(t.transaction_date)) as date_key,
-        t.store_id as store_id,
-        t.transaction_date as transaction_date,
-        t.payment_method as payment_method,
-        ti.quantity as quantity,
-        ti.unit_price as unit_price,
-        ti.discount as discount,
-        ti.subtotal as subtotal,
-        t.loaded_at as loaded_at
-    from transaction_items ti
-    inner join transactions t
-        on ti.transaction_id = t.transaction_id
+    ti.quantity,
+    ti.unit_price,
+    ti.discount,
+    ti.subtotal,
 
-)
-
-select *
-from final
+    t.total_amount
+from {{ ref('stg_transaction_items') }} ti
+inner join {{ ref('stg_transactions') }} t
+    on ti.tenant_id = t.tenant_id
+    and ti.transaction_id = t.transaction_id

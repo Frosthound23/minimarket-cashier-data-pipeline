@@ -1,7 +1,7 @@
 with source as (
 
     select *
-    from {{ source('raw', 'transaction_items') }}
+    from {{ source('raw', 'transaction_promotions') }}
 
 ),
 
@@ -9,13 +9,10 @@ cleaned as (
 
     select
         tenant_id,
-        item_id,
+        id as transaction_promotion_id,
         transaction_id,
-        product_id,
-        quantity,
-        unit_price,
-        discount,
-        subtotal,
+        promo_id,
+        discount_applied,
         created_at
     from source
 

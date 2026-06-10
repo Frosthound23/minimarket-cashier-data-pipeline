@@ -1,11 +1,13 @@
+{{ config(materialized='table') }}
+
 select
-    customer_id as customer_key,
+    concat(tenant_id, '-', toString(customer_id)) as customer_key,
+    tenant_id,
     customer_id,
     customer_name,
     phone,
     email,
     gender,
     city,
-    created_at,
-    loaded_at
+    created_at
 from {{ ref('stg_customers') }}

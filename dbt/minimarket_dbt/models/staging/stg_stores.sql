@@ -3,7 +3,7 @@
 with source as (
 
     select *
-    from {{ source('raw', 'products') }}
+    from {{ source('raw', 'stores') }}
 
 ),
 
@@ -11,13 +11,13 @@ cleaned as (
 
     select
         tenant_id,
-        product_id,
-        product_name,
-        category,
-        brand,
-        unit_price,
+        store_id,
+        store_name,
+        city,
+        province,
+        store_type,
+        opened_at,
         is_active,
-        created_at,
         created_at
     from source
 

@@ -1,21 +1,24 @@
+{{ config(materialized='table') }}
+
 with source as (
 
     select *
-    from {{ source('raw', 'raw_customers') }}
+    from {{ source('raw', 'customers') }}
 
 ),
 
 cleaned as (
 
     select
+        tenant_id,
         customer_id,
-        trim(name) as customer_name,
+        name as customer_name,
         phone,
-        lower(email) as email,
-        lower(gender) as gender,
+        email,
+        gender,
         city,
         created_at,
-        loaded_at
+        created_at
     from source
 
 )
