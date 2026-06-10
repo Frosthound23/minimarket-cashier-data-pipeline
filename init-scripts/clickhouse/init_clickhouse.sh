@@ -1,15 +1,11 @@
 #!/bin/sh
-# init_clickhouse.sh
-
-# Wait a few seconds for the server to be ready
+# Healthcheck
 sleep 5
 
-echo "Initializing ClickHouse database..."
+echo "Init ClickHouse databases and tables"
 
-# Create database
 clickhouse-client --query="CREATE DATABASE IF NOT EXISTS dwh;"
 
-# Create dimension tables
 clickhouse-client --query="
 CREATE TABLE IF NOT EXISTS dwh.dim_customer (
     customer_id UInt32,
@@ -58,4 +54,4 @@ CREATE TABLE IF NOT EXISTS dwh.fact_sales (
 ORDER BY (transaction_id, customer_id);
 "
 
-echo "ClickHouse initialization complete!"
+echo "ClickHouse init success"
