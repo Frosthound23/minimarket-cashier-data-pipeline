@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"minimarket-pipeline/internal/models"
+	"minimarket-go-pipeline/internal/models"
 	"os"
 )
 

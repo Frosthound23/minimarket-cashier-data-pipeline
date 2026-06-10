@@ -1,4 +1,4 @@
-package extract
+package extractor
 
 import (
 	"context"
@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-type PostrgresExtract struct {
+type PostgresExtractor struct {
 	db *sql.DB
 }
 
-func NewPostgresExtractor(db *sql.DB) *PostrgresExtract {
-	return &PostrgresExtract{
+func NewPostgresExtractor(db *sql.DB) *PostgresExtractor {
+	return &PostgresExtractor{
 		db: db,
 	}
 }
 
-func (e *PostrgresExtract) ExtractCustomers(
+func (e *PostgresExtractor) ExtractCustomers(
 	ctx context.Context,
 	tenant models.Tenant,
 ) ([]models.Customer, error) {
