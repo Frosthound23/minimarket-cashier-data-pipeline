@@ -79,29 +79,29 @@ services:
   superset:
     build:
       context: ./superset
+      dockerfile: Dockerfile
+    image: minimarket_superset:latest
     container_name: minimarket_superset
+    restart: unless-stopped
     ports:
       - "8088:8088"
     environment:
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+      SUPERSET_SECRET_KEY: "superset"
+      SUPERSET_LOAD_EXAMPLES: "no"
     volumes:
       - superset_home:/app/superset_home
+      - ./superset/superset_config.py:/app/pythonpath/superset_config.py
+    networks:
+      - minimarket_network
     depends_on:
       - clickhouse
     command: >
       /bin/sh -c "
       superset db upgrade &&
-      superset fab create-admin
-        --username admin
-        --firstname Superset
-        --lastname Admin
-        --email admin@example.com
-        --password admin || true &&
+      superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@example.com --password admin || true &&
       superset init &&
       superset run -h 0.0.0.0 -p 8088
       "
-    networks:
-      - minimarket_network
 
   # pipeline:
   #   build:
@@ -216,6 +216,35 @@ services:
         condition: service_healthy
     # command: sh /app/scripts/init_dbt.sh
 
+  analytics_api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: minimarket_analytics_api:latest
+    container_name: minimarket_analytics_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    networks:
+      - minimarket_network
+    depends_on:
+      - clickhouse
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: minimarket_dashboard:latest
+    container_name: minimarket_dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - minimarket_network
+    depends_on:
+      - analytics_api
 
 
 networks:
