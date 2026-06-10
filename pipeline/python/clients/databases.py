@@ -7,14 +7,14 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-from loggings import logger
+from pipeline.python.loggings import logger
 
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import OperationalError
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-from settings import settings
+from pipeline.python.settings import settings
 
 load_dotenv()
 

@@ -4,8 +4,8 @@ from typing import Any
 import polars as pl
 from sqlalchemy import text
 
-from clients.databases import get_clickhouse_client, get_postgres_engine
-from loggings import logger
+from pipeline.python.clients.databases import get_clickhouse_client, get_postgres_engine
+from pipeline.python.loggings import logger
 
 
 TABLE_MAPPINGS = {
