@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"log"
+	"minimarket-go-pipeline/internal/app"
+	"minimarket-go-pipeline/internal/config"
+	"minimarket-go-pipeline/internal/databases"
+	"minimarket-go-pipeline/internal/extractor"
+	"minimarket-go-pipeline/internal/loader"
+	"time"
 
 	"github.com/joho/godotenv"
-
-	"minimarket-pipeline/internal/config"
-	"minimarket-pipeline/internal/databases"
 )
 
 func main() {
@@ -14,13 +18,16 @@ func main() {
 
 	cfg := config.LoadAppConfig()
 
+	tenants, err := config.LoadTenants("config/tenants.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	postgresDB, err := databases.NewPostgresConnection(cfg.Postgres)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer postgresDB.Close()
-
-	log.Println("PostgreSQL connection successful")
 
 	clickhouseConn, err := databases.NewClickHouseConnection(cfg.ClickHouse)
 	if err != nil {
@@ -28,19 +35,17 @@ func main() {
 	}
 	defer clickhouseConn.Close()
 
-	log.Println("ClickHouse connection successful")
+	postgresExtractor := extractor.NewPostgresExtractor(postgresDB)
+	clickhouseLoader := loader.NewClickHouseLoader(clickhouseConn)
 
-	tenants, err := config.LoadTenants("config/tenants.json")
-	if err != nil {
+	pipeline := app.NewPipeline(postgresExtractor, clickhouseLoader)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	if err := pipeline.Run(ctx, tenants); err != nil {
 		log.Fatal(err)
 	}
 
-	for _, tenant := range tenants {
-		log.Printf(
-			"loaded tenant: tenant_id=%s schema=%s store_name=%s",
-			tenant.TenantID,
-			tenant.Schema,
-			tenant.StoreName,
-		)
-	}
+	log.Println("pipeline completed successfully")
 }
