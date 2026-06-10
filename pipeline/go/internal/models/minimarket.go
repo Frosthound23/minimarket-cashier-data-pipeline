@@ -15,8 +15,7 @@ type Tenant struct {
 type TenantList struct {
 	Tenants []Tenant `json:"tenants"`
 }
-
-type CustomerRow struct {
+type Customer struct {
 	TenantID   string
 	CustomerID int
 	Name       string
