@@ -1,17 +1,18 @@
 create database if not exists minimarket;
 
-create table if not exists minimarket.raw_customers (
+CREATE TABLE IF NOT EXISTS minimarket.raw_customers (
+    tenant_id String,
     customer_id Int32,
     name String,
     phone Nullable(String),
     email Nullable(String),
     gender Nullable(String),
     city Nullable(String),
-    created_at datetime,
-    loaded_at datetime
+    created_at DateTime,
+    loaded_at DateTime
 )
-engine = MergeTree
-order by customer_id;
+ENGINE = MergeTree
+ORDER BY (tenant_id, customer_id);
 
 create table if not exists minimarket.raw_products (
     product_id Int32,
