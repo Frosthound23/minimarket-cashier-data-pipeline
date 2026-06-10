@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"minimarket-go-pipeline/internal/extractor"
+	"minimarket-go-pipeline/internal/loader"
+	"minimarket-go-pipeline/internal/models"
 	"sync"
 	"time"
-
-	"minimarket-pipeline/internal/config"
-	"minimarket-pipeline/internal/extractor"
-	"minimarket-pipeline/internal/loader"
 )
 
 type Pipeline struct {
@@ -27,14 +26,14 @@ func NewPipeline(
 	}
 }
 
-func (p *Pipeline) Run(ctx context.Context, tenants []config.Tenant) error {
+func (p *Pipeline) Run(ctx context.Context, tenants []models.Tenant) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(tenants))
 
 	for _, tenant := range tenants {
 		wg.Add(1)
 
-		go func(t config.Tenant) {
+		go func(t models.Tenant) {
 			defer wg.Done()
 
 			if err := p.runTenant(ctx, t); err != nil {
@@ -60,7 +59,7 @@ func (p *Pipeline) Run(ctx context.Context, tenants []config.Tenant) error {
 	return nil
 }
 
-func (p *Pipeline) runTenant(ctx context.Context, tenant config.Tenant) error {
+func (p *Pipeline) runTenant(ctx context.Context, tenant models.Tenant) error {
 	startedAt := time.Now()
 
 	log.Printf("starting tenant=%s schema=%s", tenant.TenantID, tenant.Schema)

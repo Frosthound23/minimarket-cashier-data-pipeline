@@ -13,9 +13,7 @@ type PostgresExtractor struct {
 }
 
 func NewPostgresExtractor(db *sql.DB) *PostgresExtractor {
-	return &PostgresExtractor{
-		db: db,
-	}
+	return &PostgresExtractor{db: db}
 }
 
 func (e *PostgresExtractor) ExtractCustomers(
@@ -37,11 +35,7 @@ func (e *PostgresExtractor) ExtractCustomers(
 
 	rows, err := e.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to extract customers for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, fmt.Errorf("failed to extract customers for tenant %s: %w", tenant.TenantID, err)
 	}
 	defer rows.Close()
 
@@ -63,22 +57,14 @@ func (e *PostgresExtractor) ExtractCustomers(
 			&customer.City,
 			&customer.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf(
-				"failed to scan customer row for tenant %s: %w",
-				tenant.TenantID,
-				err,
-			)
+			return nil, fmt.Errorf("failed to scan customer row for tenant %s: %w", tenant.TenantID, err)
 		}
 
 		customers = append(customers, customer)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf(
-			"customer rows iteration failed for tenant %s: %w",
-			tenant.TenantID,
-			err,
-		)
+		return nil, fmt.Errorf("customer row iteration failed for tenant %s: %w", tenant.TenantID, err)
 	}
 
 	return customers, nil
