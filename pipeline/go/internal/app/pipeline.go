@@ -69,16 +69,59 @@ func (p *Pipeline) runTenant(ctx context.Context, tenant models.Tenant) error {
 		return err
 	}
 
-	log.Printf("extracted customers tenant=%s rows=%d", tenant.TenantID, len(customers))
-
 	if err := p.loader.LoadCustomers(ctx, customers); err != nil {
 		return err
 	}
 
+	log.Printf("loaded customers tenant=%s rows=%d", tenant.TenantID, len(customers))
+
+	products, err := p.extractor.ExtractProducts(ctx, tenant)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loader.LoadProducts(ctx, products); err != nil {
+		return err
+	}
+
+	log.Printf("loaded products tenant=%s rows=%d", tenant.TenantID, len(products))
+
+	stores, err := p.extractor.ExtractStores(ctx, tenant)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loader.LoadStores(ctx, stores); err != nil {
+		return err
+	}
+
+	log.Printf("loaded stores tenant=%s rows=%d", tenant.TenantID, len(stores))
+
+	promotions, err := p.extractor.ExtractPromotions(ctx, tenant)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loader.LoadPromotions(ctx, promotions); err != nil {
+		return err
+	}
+
+	log.Printf("loaded promotions tenant=%s rows=%d", tenant.TenantID, len(promotions))
+
+	suppliers, err := p.extractor.ExtractSuppliers(ctx, tenant)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loader.LoadSuppliers(ctx, suppliers); err != nil {
+		return err
+	}
+
+	log.Printf("loaded suppliers tenant=%s rows=%d", tenant.TenantID, len(suppliers))
+
 	log.Printf(
-		"loaded customers tenant=%s rows=%d duration=%s",
+		"finished tenant=%s duration=%s",
 		tenant.TenantID,
-		len(customers),
 		time.Since(startedAt),
 	)
 
