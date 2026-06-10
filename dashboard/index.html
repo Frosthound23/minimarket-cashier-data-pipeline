@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Minimarket Analytics Dashboard</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f5f6fa;
+            color: #222;
+        }
+
+        header {
+            background: #1f2937;
+            color: white;
+            padding: 24px;
+        }
+
+        header h1 {
+            margin: 0;
+        }
+
+        .container {
+            padding: 24px;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .kpi-card,
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        }
+
+        .kpi-title {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value {
+            font-size: 26px;
+            font-weight: bold;
+        }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 320px !important;
+        }
+
+        @media (max-width: 900px) {
+            .kpi-grid,
+            .chart-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Minimarket Multi-Tenant Analytics Dashboard</h1>
+        <p>FastAPI + ClickHouse + dbt + Chart.js</p>
+    </header>
+
+    <main class="container">
+        <section class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-title">Total Revenue</div>
+                <div id="totalRevenue" class="kpi-value">-</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-title">Total Transactions</div>
+                <div id="totalTransactions" class="kpi-value">-</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-title">Total Customers</div>
+                <div id="totalCustomers" class="kpi-value">-</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-title">Average Basket Size</div>
+                <div id="averageBasketSize" class="kpi-value">-</div>
+            </div>
+        </section>
+
+        <section class="chart-grid">
+            <div class="chart-card">
+                <h3>Revenue by Store</h3>
+                <canvas id="revenueByStoreChart"></canvas>
+            </div>
+
+            <div class="chart-card">
+                <h3>Promotion Effectiveness</h3>
+                <canvas id="promotionEffectivenessChart"></canvas>
+            </div>
+
+            <div class="chart-card">
+                <h3>Top Products by City</h3>
+                <canvas id="topProductsChart"></canvas>
+            </div>
+
+            <div class="chart-card">
+                <h3>Customer Segments</h3>
+                <canvas id="customerSegmentsChart"></canvas>
+            </div>
+
+            <div class="chart-card">
+                <h3>Transactions by Day</h3>
+                <canvas id="transactionsByDayChart"></canvas>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
