@@ -1,14 +1,16 @@
-# ---------- Build stage ----------
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24.1-alpine AS builder
 
 WORKDIR /app
 
 RUN apk add --no-cache ca-certificates tzdata git
 
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOSUMDB=sum.golang.org
+
 COPY go.mod ./
 COPY go.sum* ./
 
-RUN go mod download
+RUN go mod download -x
 
 COPY . .
 
@@ -17,7 +19,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     ./main.go
 
 
-# ---------- Runtime stage ----------
 FROM alpine:3.20
 
 WORKDIR /app
