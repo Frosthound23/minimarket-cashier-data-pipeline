@@ -17,7 +17,7 @@ cleaned as (
         total_amount,
         payment_method,
         status,
-        created_at
+        loaded_at
     from source
     where lower(status) = 'completed'
 

@@ -2,9 +2,29 @@ version: 2
 
 sources:
   - name: raw
+    database: minimarket
     schema: minimarket
     tables:
-      - name: raw_customers
-      - name: raw_products
-      - name: raw_transactions
-      - name: raw_transaction_items
+      - name: customers
+        identifier: raw_customers
+
+      - name: products
+        identifier: raw_products
+
+      - name: stores
+        identifier: raw_stores
+
+      - name: promotions
+        identifier: raw_promotions
+
+      - name: suppliers
+        identifier: raw_suppliers
+
+      - name: transactions
+        identifier: raw_transactions
+
+      - name: transaction_items
+        identifier: raw_transaction_items
+
+      - name: transaction_promotions
+        identifier: raw_transaction_promotions

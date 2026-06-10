@@ -17,7 +17,7 @@ cleaned as (
         city,
         country,
         created_at,
-        created_at
+        loaded_at
     from source
 
 )

@@ -9,5 +9,6 @@ select
     email,
     gender,
     city,
-    created_at
+    created_at,
+    loaded_at
 from {{ ref('stg_customers') }}

@@ -16,7 +16,7 @@ cleaned as (
         unit_price,
         discount,
         subtotal,
-        created_at
+        loaded_at
     from source
 
 )

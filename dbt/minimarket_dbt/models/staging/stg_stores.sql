@@ -18,7 +18,7 @@ cleaned as (
         store_type,
         opened_at,
         is_active,
-        created_at
+        loaded_at
     from source
 
 )

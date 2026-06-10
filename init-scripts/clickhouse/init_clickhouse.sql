@@ -1,4 +1,4 @@
-create database if not exists minimarket;
+CREATE DATABASE IF NOT EXISTS minimarket;
 
 CREATE TABLE IF NOT EXISTS minimarket.raw_customers (
     tenant_id String,
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_customers (
     gender Nullable(String),
     city Nullable(String),
     created_at DateTime,
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, customer_id);
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_products (
     unit_price Decimal(12, 2),
     is_active Bool,
     created_at DateTime,
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, product_id);
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_stores (
     store_type Nullable(String),
     opened_at Nullable(Date),
     is_active Bool,
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, store_id);
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_promotions (
     start_date Nullable(Date),
     end_date Nullable(Date),
     min_purchase Decimal(12, 2),
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, promo_id);
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_suppliers (
     city Nullable(String),
     country Nullable(String),
     created_at DateTime,
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, supplier_id);
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_transactions (
     total_amount Decimal(14, 2),
     payment_method Nullable(String),
     status Nullable(String),
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, transaction_id);
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_transaction_items (
     unit_price Decimal(12, 2),
     discount Decimal(12, 2),
     subtotal Decimal(14, 2),
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, item_id);
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS minimarket.raw_transaction_promotions (
     transaction_id Nullable(Int32),
     promo_id Nullable(Int32),
     discount_applied Nullable(Decimal(12, 2)),
-    created_at DateTime
+    loaded_at DateTime
 )
 ENGINE = MergeTree
 ORDER BY (tenant_id, id);

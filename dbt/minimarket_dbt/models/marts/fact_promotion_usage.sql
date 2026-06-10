@@ -12,6 +12,12 @@ select
     tp.transaction_id,
     tp.promo_id,
 
+    t.customer_id,
+    t.store_id,
+
+    concat(t.tenant_id, '-', toString(t.customer_id)) as customer_key,
+    concat(t.tenant_id, '-', toString(t.store_id)) as store_key,
+
     t.transaction_date,
     t.transaction_date_key,
 
@@ -21,7 +27,10 @@ select
     p.min_purchase,
 
     tp.discount_applied,
-    t.total_amount
+    t.total_amount,
+
+    t.loaded_at as transaction_loaded_at,
+    tp.loaded_at as promotion_usage_loaded_at
 from {{ ref('stg_transaction_promotions') }} tp
 inner join {{ ref('stg_transactions') }} t
     on tp.tenant_id = t.tenant_id

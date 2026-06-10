@@ -27,7 +27,10 @@ select
     ti.discount,
     ti.subtotal,
 
-    t.total_amount
+    t.total_amount,
+
+    t.loaded_at as transaction_loaded_at,
+    ti.loaded_at as item_loaded_at
 from {{ ref('stg_transaction_items') }} ti
 inner join {{ ref('stg_transactions') }} t
     on ti.tenant_id = t.tenant_id

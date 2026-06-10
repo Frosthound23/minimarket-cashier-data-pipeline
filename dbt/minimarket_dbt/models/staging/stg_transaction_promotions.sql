@@ -13,7 +13,7 @@ cleaned as (
         transaction_id,
         promo_id,
         discount_applied,
-        created_at
+        loaded_at
     from source
 
 )

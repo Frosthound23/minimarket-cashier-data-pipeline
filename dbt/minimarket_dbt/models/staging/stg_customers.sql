@@ -18,7 +18,7 @@ cleaned as (
         gender,
         city,
         created_at,
-        created_at
+        loaded_at
     from source
 
 )

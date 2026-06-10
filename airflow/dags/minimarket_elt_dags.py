@@ -28,10 +28,30 @@ with DAG(
     catchup=False,
     tags=["minimarket", "elt", "dbt", "clickhouse"],
 ) as dag:
-    run_pipeline = DockerOperator(
-        task_id="run_python_polars_el",
-        image="minimarket_pipeline:latest",
-        command="python main.py",
+    # run_pipeline = DockerOperator(
+    #     task_id="run_python_polars_el",
+    #     image="minimarket_pipeline_python:latest",
+    #     command="python main.py",
+    #     docker_url="unix://var/run/docker.sock",
+    #     network_mode=NETWORK_NAME,
+    #     auto_remove=True,
+    #     mount_tmp_dir=False,
+    #     environment={**POSTGRES_ENV, **CLICKHOUSE_ENV},
+    #     mounts=[
+    #         Mount(
+    #             source=f"{PROJECT_ROOT}/pipeline/python",
+    #             target="/app",
+    #             type='bind',
+    #             read_only=False,
+    #         ),
+    #     ],
+    #     working_dir="/app",
+    # )
+    
+    run_pipeline_go = DockerOperator(
+        task_id="run_pipeline_go",
+        image="minimarket_pipeline_go:latest",
+        command="./minimarket-go-pipeline",
         docker_url="unix://var/run/docker.sock",
         network_mode=NETWORK_NAME,
         auto_remove=True,
@@ -39,19 +59,19 @@ with DAG(
         environment={**POSTGRES_ENV, **CLICKHOUSE_ENV},
         mounts=[
             Mount(
-                source=f"{PROJECT_ROOT}/pipeline",
-                target="/app",
-                type='bind',
-                read_only=False,
-            ),
+                source="/var/run/docker.sock",
+                target="/var/run/docker.sock",
+                type="bind",
+            )
         ],
-        working_dir="/app",
+        # working_dir="/app",
+
     )
 
     dbt_debug = DockerOperator(
         task_id="dbt_debug",
         image="minimarket_dbt:latest",
-        command="dbt debug --profiles-dir /usr/app/minimarket_dbt",
+        command="dbt debug --profiles-dir .",
         docker_url="unix://var/run/docker.sock",
         network_mode=NETWORK_NAME,
         auto_remove=True,
@@ -108,4 +128,4 @@ with DAG(
         working_dir="/usr/app/minimarket_dbt",
     )
 
-    run_pipeline >> dbt_debug >> dbt_run >> dbt_test
+    run_pipeline_go >> dbt_debug >> dbt_run >> dbt_test

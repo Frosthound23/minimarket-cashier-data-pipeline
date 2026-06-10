@@ -9,5 +9,6 @@ select
     province,
     store_type,
     opened_at,
-    is_active
+    is_active,
+    loaded_at
 from {{ ref('stg_stores') }}

@@ -18,7 +18,7 @@ cleaned as (
         unit_price,
         is_active,
         created_at,
-        created_at
+        loaded_at
     from source
 
 )

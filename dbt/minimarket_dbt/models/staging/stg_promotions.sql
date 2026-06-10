@@ -18,7 +18,7 @@ cleaned as (
         start_date,
         end_date,
         min_purchase,
-        created_at
+        loaded_at
     from source
 
 )

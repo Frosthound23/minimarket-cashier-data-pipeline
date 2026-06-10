@@ -9,5 +9,6 @@ select
     discount_pct,
     start_date,
     end_date,
-    min_purchase
+    min_purchase,
+    loaded_at
 from {{ ref('stg_promotions') }}
