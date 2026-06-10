@@ -2,16 +2,19 @@
   {
     "tenant_id": "tenant_jakarta",
     "schema": "tenant_jakarta",
-    "store_name": "Jakarta Store"
+    "store_name": "Jakarta Store",
+    "city": "Jakarta"
   },
   {
     "tenant_id": "tenant_bandung",
     "schema": "tenant_bandung",
-    "store_name": "Bandung Store"
+    "store_name": "Bandung Store",
+    "city": "Bandung"
   },
   {
     "tenant_id": "tenant_surabaya",
     "schema": "tenant_surabaya",
-    "store_name": "Surabaya Store"
+    "store_name": "Surabaya Store",
+    "city": "Surabaya"
   }
 ]
