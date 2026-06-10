@@ -1,165 +1,505 @@
-# Minimarket Cashier Data Pipeline Beginner - Level
+# Minimarket Cashier Data Pipeline - Intermediate Level
 
 ## 1. Project Description
 
-This project is an end-to-end data engineering pipeline for a minimarket cashier / point-of-sale system at a beginner-level. This project is for the take home test of the data engineering job application in Parkee.
+This project is an end-to-end **Data Engineering pipeline** for a minimarket cashier / point-of-sale system. It was built for a Data Engineer take-home technical test.
 
-The pipeline extracts transactional data from PostgreSQL, loads the raw data into ClickHouse, transforms the data using dbt into a dimensional star schema, orchestrates the workflow using Apache Airflow, and visualizes the analytical results using Jupyter Notebook.
+The project simulates a multi-tenant minimarket environment where each tenant has its own PostgreSQL schema. A Golang pipeline extracts data from PostgreSQL, loads raw data into ClickHouse, dbt transforms the data into staging and mart tables, Airflow orchestrates the workflow, and FastAPI + Chart.js serve the analytics dashboard.
 
-This project is built for the **Data Engineer Take-Home Technical Test** at the Beginner level.
+This version focuses on the **Intermediate Level** implementation.
 
-## 2. Tech Stack
+---
 
-| Component         | Tool                      | Notes                                             |
-| ----------------- | ------------------------- | ------------------------                          |
-| Source Database   | PostgreSQL                | OLTP                                              |
-| Data Warehouse    | ClickHouse                | OLAP                                              |
-| Pipeline Language | Python                    |                                                   |
-| DataFrame Library | Polars                    | Pandas Alternative because it is too slow         |
-| Transformation    | dbt Core + dbt-clickhouse |                                       |  
-| Orchestration     | Apache Airflow            |                                       |
-| Visualization     | Jupyter Notebook          |                                                   |
-| Optional BI Tool  | Apache Superset           | Not being used in beginner-level                  |
-| Containerization  | Docker Compose            |                                                   |
+## 2. Main Features
 
-## 3. Architecture
+- Multi-tenant PostgreSQL source using separate schemas:
+  - `tenant_jakarta`
+  - `tenant_bandung`
+  - `tenant_surabaya`
+- Golang ELT pipeline with goroutine-based tenant processing
+- Hybrid incremental loading using ClickHouse watermark table
+- ClickHouse as OLAP data warehouse
+- dbt staging and mart models as physical tables
+- Tenant-aware star schema
+- Airflow orchestration
+- FastAPI analytics API
+- Chart.js web dashboard
+- Docker Compose based local development environment
+
+---
+
+## 3. Tech Stack
+
+| Component | Tool | Purpose |
+| --- | --- | --- |
+| Source Database | PostgreSQL | Multi-tenant OLTP source |
+| Data Warehouse | ClickHouse | OLAP storage and analytics |
+| Pipeline Language | Golang | Intermediate ELT pipeline |
+| Concurrency | Goroutines + WaitGroup | Parallel tenant processing |
+| Transformation | dbt Core + dbt-clickhouse | Staging and mart transformations |
+| Orchestration | Apache Airflow | Workflow scheduling |
+| API Layer | FastAPI | Analytics API endpoints |
+| Dashboard | Chart.js + Nginx | Simple analytics dashboard |
+| Containerization | Docker Compose | Local service orchestration |
+| Optional Notebook | Jupyter Notebook | Exploratory validation |
+
+---
+
+## 4. Architecture
 
 ```mermaid
 flowchart TD
-    A[PostgreSQL Source Database] --> B[Python Polars EL Pipeline]
+    A[PostgreSQL Source Database] --> A1[tenant_jakarta schema]
+    A --> A2[tenant_bandung schema]
+    A --> A3[tenant_surabaya schema]
+
+    A1 --> B[Golang Incremental ELT Pipeline]
+    A2 --> B
+    A3 --> B
+
     B --> C[ClickHouse Raw Tables]
-    C --> D[dbt Staging Models]
-    D --> E[dbt Mart Models]
-    E --> F[Jupyter Notebook Visualization]
-    E --> G["Apache Superset<br/>Prepared for Intermediate Level"]
+    B --> W[ClickHouse Watermark Table]
+
+    C --> D[dbt Staging Tables]
+    D --> E[dbt Mart Tables]
+
+    E --> F[FastAPI Analytics API]
+    F --> G[Chart.js Dashboard]
 
     H[Apache Airflow] --> B
     H --> D
     H --> E
 ```
 
+---
 
-## 4. Data Flow
+## 5. Data Flow
 
 ```text
-PostgreSQL
-    ↓
-Python Polars Extract & Load
-    ↓
+PostgreSQL tenant schemas
+        ↓
+Golang ELT pipeline
+        ↓
 ClickHouse raw tables
-    ↓
-dbt staging models
-    ↓
-dbt mart models
-    ↓
-Jupyter Notebook analytics
+        ↓
+dbt staging tables
+        ↓
+dbt mart tables
+        ↓
+FastAPI analytics API
+        ↓
+Chart.js dashboard
 ```
 
-## 5. Star Schema
+---
 
-The final mart layer follows a star schema.
+## 6. Multi-Tenant Source Design
+
+The PostgreSQL source database contains three tenant schemas:
 
 ```text
-                    dim_date
-                       |
+tenant_jakarta
+tenant_bandung
+tenant_surabaya
+```
+
+Each schema contains the same operational tables:
+
+```text
+customers
+products
+stores
+promotions
+suppliers
+transactions
+transaction_items
+transaction_promotions
+```
+
+The same local IDs may exist in different tenant schemas. For example:
+
+```text
+tenant_jakarta.customer_id = 1
+tenant_bandung.customer_id = 1
+tenant_surabaya.customer_id = 1
+```
+
+Because of this, every raw, staging, and mart table includes `tenant_id`.
+
+---
+
+## 7. Incremental Loading Strategy
+
+The Golang pipeline uses a **hybrid loading strategy**.
+
+### Incremental tables
+
+These source tables have reliable timestamp columns, so they use watermark-based incremental extraction:
+
+| Source Table | Watermark Column |
+| --- | --- |
+| `customers` | `created_at` |
+| `products` | `created_at` |
+| `suppliers` | `created_at` |
+| `transactions` | `transaction_date` |
+
+### Full-refresh-by-tenant tables
+
+These tables do not have reliable `created_at` or `updated_at` columns, so they are refreshed per tenant:
+
+| Source Table | Reason |
+| --- | --- |
+| `stores` | No reliable incremental timestamp |
+| `promotions` | No reliable incremental timestamp |
+| `transaction_items` | No reliable incremental timestamp |
+| `transaction_promotions` | No reliable incremental timestamp |
+
+This design keeps the pipeline realistic: watermark logic is used only where the source data supports it, while non-incremental child/reference tables are refreshed to preserve correctness.
+
+---
+
+## 8. Watermark Table
+
+The watermark state is stored in ClickHouse:
+
+```sql
+CREATE TABLE IF NOT EXISTS minimarket.elt_watermarks (
+    tenant_id String,
+    table_name String,
+    watermark_column String,
+    last_watermark DateTime,
+    processed_at DateTime
+)
+ENGINE = ReplacingMergeTree(processed_at)
+ORDER BY (tenant_id, table_name);
+```
+
+Column meaning:
+
+| Column | Description |
+| --- | --- |
+| `tenant_id` | Tenant being processed |
+| `table_name` | Source table name |
+| `watermark_column` | Timestamp column used for incremental extraction |
+| `last_watermark` | Latest source timestamp already loaded |
+| `processed_at` | When the pipeline saved the watermark state |
+
+---
+
+## 9. ClickHouse Raw Tables
+
+The Golang pipeline loads data into these ClickHouse raw tables:
+
+```text
+raw_customers
+raw_products
+raw_stores
+raw_promotions
+raw_suppliers
+raw_transactions
+raw_transaction_items
+raw_transaction_promotions
+elt_watermarks
+```
+
+Every raw table contains:
+
+```text
+tenant_id
+loaded_at
+```
+
+`tenant_id` prevents cross-tenant ID collisions. `loaded_at` records when the row was loaded into ClickHouse.
+
+---
+
+## 10. dbt Transformation Layer
+
+dbt is used to transform raw data into staging and mart layers.
+
+### Staging tables
+
+The staging layer is materialized as **physical tables**, not views.
+
+```text
+stg_customers
+stg_products
+stg_stores
+stg_promotions
+stg_suppliers
+stg_transactions
+stg_transaction_items
+stg_transaction_promotions
+```
+
+The staging layer standardizes column names, preserves `tenant_id`, applies basic cleaning, and filters completed transactions.
+
+`stg_transactions` filters only completed transactions:
+
+```sql
+where lower(status) = 'completed'
+```
+
+### Mart tables
+
+```text
+dim_customer
+dim_product
+dim_store
+dim_promotion
+dim_date
+fact_sales
+fact_promotion_usage
+```
+
+The mart layer is also materialized as physical tables.
+
+---
+
+## 11. Star Schema
+
+The final mart layer follows a tenant-aware star schema.
+
+```text
+                       dim_date
+                          |
 dim_customer ---- fact_sales ---- dim_product
+                          |
+                      dim_store
+```
+
+Promotion analytics uses a separate fact table:
+
+```text
+dim_promotion ---- fact_promotion_usage ---- dim_date
 ```
 
 ### Main mart tables
 
-| Model          | Description                                     |
-| -------------- | ----------------------------------------------- |
-| `dim_customer` | Customer dimension to keep customer's data dimension         |
-| `dim_product`  | Product dimension to keep every products                               |
-| `dim_date`     | Date dimension generated from every transaction dates |
-| `fact_sales`   | Sales fact table for every transaction items that was sold|
+| Model | Description |
+| --- | --- |
+| `dim_customer` | Customer dimension |
+| `dim_product` | Product dimension |
+| `dim_store` | Store dimension |
+| `dim_promotion` | Promotion dimension |
+| `dim_date` | Date dimension generated from transactions |
+| `fact_sales` | Sales fact table at transaction-item grain |
+| `fact_promotion_usage` | Promotion usage fact table |
 
-The data of `fact_sales` is **one row per transaction item**. This allows product-level analysis, such as top 5 products by category per cateogory.
+### Fact grain
 
-## 6. Analytical Questions
-Answers in the analysis.ipynb in the folder minimarket-cashier-data-pipeline/notebooks/
+`fact_sales` uses this grain:
 
-## 7. Repository Structure
+```text
+1 row = 1 transaction item
+```
+
+Because of this, transaction counts must use:
+
+```sql
+countDistinct(transaction_key)
+```
+
+not:
+
+```sql
+count(*)
+```
+
+---
+
+## 12. Tenant-Aware Keys
+
+The mart layer creates tenant-aware keys to avoid cross-tenant collisions.
+
+Example:
+
+```sql
+concat(tenant_id, '-', toString(customer_id)) as customer_key
+```
+
+Example keys:
+
+```text
+tenant_jakarta-1
+tenant_bandung-1
+tenant_surabaya-1
+```
+
+All fact joins include `tenant_id`.
+
+Example:
+
+```sql
+inner join stg_transactions t
+    on ti.tenant_id = t.tenant_id
+    and ti.transaction_id = t.transaction_id
+```
+
+---
+
+## 13. Analytics API
+
+FastAPI exposes analytics endpoints from the dbt mart tables.
+
+Base URL:
+
+```text
+http://localhost:8000
+```
+
+API documentation:
+
+```text
+http://localhost:8000/docs
+```
+
+### Endpoints
+
+| Endpoint | Description |
+| --- | --- |
+| `/api/summary` | Total revenue, transactions, customers, and average basket size |
+| `/api/revenue-by-store` | Revenue and transaction count by store |
+| `/api/promotion-effectiveness` | Promotion usage and promoted revenue |
+| `/api/top-products-by-city` | Top products by city |
+| `/api/customer-segments` | Customer segmentation by spending |
+| `/api/transactions-by-day` | Transactions and revenue by day of week |
+
+---
+
+## 14. Dashboard
+
+The dashboard is built using Chart.js and served with Nginx.
+
+Dashboard URL:
+
+```text
+http://localhost:3000
+```
+
+Charts included:
+
+1. Total Revenue KPI
+2. Total Transactions KPI
+3. Total Customers KPI
+4. Average Basket Size KPI
+5. Revenue by Store
+6. Promotion Effectiveness
+7. Top Products by City
+8. Customer Segments
+9. Transactions by Day
+
+---
+
+## 15. Repository Structure
 
 ```text
 minimarket-cashier-data-pipeline/
 ├── README.md
 ├── docker-compose.yml
 ├── .env
-├── .venv(python's virtual environment but need set up)
 ├── .gitignore
-├── requirements.txt
-|
+│
 ├── airflow/
 │   ├── Dockerfile
-|   ├── logs 
 │   └── dags/
-│       └── minimarket_elt_dags.py
-|       └── dags_config.py
+│       ├── minimarket_elt_dags.py
+│       └── dags_config.py
+│
+├── api/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── main.py
+│   └── app/
+│       ├── __init__.py
+│       ├── database.py
+│       ├── routers/
+│       │   ├── __init__.py
+│       │   └── analytics_router.py
+│       └── services/
+│           ├── __init__.py
+│           └── analytics_service.py
+│
+├── dashboard/
+│   ├── Dockerfile
+│   ├── index.html
+│   └── app.js
 │
 ├── dbt/
 │   ├── Dockerfile
 │   ├── requirements.txt
-|   ├── logs/
 │   └── minimarket_dbt/
 │       ├── dbt_project.yml
 │       ├── profiles.yml
 │       └── models/
+│           ├── sources.yml
 │           ├── staging/
-|           |   ├── sources.yml
-|           |   ├── stg_customers.sql 
-|           |   ├── stg_products.sql 
-|           |   ├── stg_transaction_items.sql
-|           |   └── stg_transactions.sql
+│           │   ├── stg_customers.sql
+│           │   ├── stg_products.sql
+│           │   ├── stg_stores.sql
+│           │   ├── stg_promotions.sql
+│           │   ├── stg_suppliers.sql
+│           │   ├── stg_transactions.sql
+│           │   ├── stg_transaction_items.sql
+│           │   └── stg_transaction_promotions.sql
 │           └── marts/
-|               ├── sources.yml
-|               ├── dim_customer.sql
-|               ├── dim_date.sql
-|               ├── dim_product.sql
-|               └── fact_sales.sql
-|               
+│               ├── dim_customer.sql
+│               ├── dim_product.sql
+│               ├── dim_store.sql
+│               ├── dim_promotion.sql
+│               ├── dim_date.sql
+│               ├── fact_sales.sql
+│               └── fact_promotion_usage.sql
 │
 ├── init-scripts/
-|   ├── airflow/
-|   |   └── init_airflow.sh
+│   ├── airflow/
+│   │   └── init_airflow.sh
 │   ├── postgres/
-|   |   ├── seed_data.sql        
-│   │   └── init_postgres.sql
+│   │   ├── init_postgres.sql
+│   │   └── seed_data.sql
 │   ├── clickhouse/
 │   │   └── init_clickhouse.sql
 │   └── dbt/
-|       └── init_dbt.sh
+│       └── init_dbt.sh
 │
-├── logs/
-|
 ├── notebooks/
 │   └── analysis.ipynb
 │
 ├── pipeline/
-│   ├── Dockerfile
-│   ├── requirements.txt
-|   ├── loggings.py
-│   ├── main.py
-│   ├── settings.py
-|   ├── clients/
-|   |   └── databases.py
-|   └── config/
-|       └── tenants.json
-|   
+│   ├── python/
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── main.py
+│   └── go/
+│       ├── Dockerfile
+│       ├── go.mod
+│       ├── go.sum
+│       ├── main.go
+│       ├── config/
+│       │   └── tenants.json
+│       └── internal/
+│           ├── app/
+│           ├── config/
+│           ├── database/
+│           ├── extractor/
+│           ├── loader/
+│           ├── models/
+│           └── watermark/
 │
-└── superset/
-    ├── Dockerfile
-    └── requirements.txt
+└── logs/
 ```
 
-## 8. Prerequisites
+---
+
+## 16. Prerequisites
 
 Make sure these tools are installed:
 
-* Docker
-* Docker Compose
-* Git
-* python
+```text
+Docker
+Docker Compose
+Git
+```
 
 Check installation:
 
@@ -167,18 +507,15 @@ Check installation:
 docker --version
 docker compose version
 git --version
-python --version
 ```
 
-## 9. Environment Variables
+---
 
-Copy the example environment file:
+## 17. Environment Variables
 
-```bash
-cp .env .env
-```
+Create a `.env` file in the project root.
 
-Example `.env` values:
+Example:
 
 ```env
 POSTGRES_HOST=postgres
@@ -186,12 +523,14 @@ POSTGRES_PORT=5432
 POSTGRES_DB=minimarket
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
+POSTGRES_SSLMODE=disable
 
 CLICKHOUSE_HOST=clickhouse
 CLICKHOUSE_PORT=8123
+CLICKHOUSE_NATIVE_PORT=9000
 CLICKHOUSE_DB=minimarket
-CLICKHOUSE_USER=clickhouse
-CLICKHOUSE_PASSWORD=clickhouse
+CLICKHOUSE_USER=minimarket_user
+CLICKHOUSE_PASSWORD=minimarket_password
 
 AIRFLOW_USERNAME=admin
 AIRFLOW_PASSWORD=admin
@@ -200,22 +539,23 @@ AIRFLOW_POSTGRES_USER=airflow
 AIRFLOW_POSTGRES_PASSWORD=airflow
 AIRFLOW_POSTGRES_HOST=airflow-postgres
 AIRFLOW_POSTGRES_PORT=5432
-AIRFLOW_WEBSERVER_SECRET_KEY=airflowsecretkey
-PROJECT_ROOT=//Users/Farrel/code/repos/minimarket-cashier-data-pipeline
+AIRFLOW_WEBSERVER_SECRET_KEY=minimarket_airflow_secret_key_please_change
 
 JUPYTER_TOKEN=admin
 
-SUPERSET_SECRET_KEY=supersecretkey
 MINIMARKET_NETWORK_NAME=minimarket_network
 ```
 
-Important:
+Important notes:
 
-* Use `clickhouse` as the ClickHouse host inside Docker.
-* Use `localhost` only when connecting from the host machine.
-* `PROJECT_ROOT` must use the absolute path to this project folder.
+- Use `clickhouse` as the ClickHouse host from inside Docker containers.
+- Use `localhost` only when connecting from the host machine.
+- Go ClickHouse native client uses port `9000`.
+- Python, dbt, and FastAPI use ClickHouse HTTP port `8123`.
 
-## 10. How to Run the Project
+---
+
+## 18. How to Run the Project
 
 ### Step 1: Build Docker images
 
@@ -223,11 +563,225 @@ Important:
 docker compose build
 ```
 
-### Step 2: Docker Compose Up
+### Step 2: Start all services
 
 ```bash
 docker compose up -d
 ```
+
+### Step 3: Check running containers
+
+```bash
+docker compose ps
+```
+
+---
+
+## 19. Run the Go ELT Pipeline Manually
+
+```bash
+docker compose build pipeline_go
+docker compose run --rm pipeline_go
+```
+
+The Go pipeline processes tenants using goroutines.
+
+Expected behavior on the first run:
+
+```text
+customers       rows > 0
+products        rows > 0
+suppliers       rows > 0
+transactions    rows > 0
+stores                  full refresh
+promotions              full refresh
+transaction_items       full refresh
+transaction_promotions  full refresh
+```
+
+Expected behavior on the second run:
+
+```text
+customers       rows = 0
+products        rows = 0
+suppliers       rows = 0
+transactions    rows = 0
+```
+
+The full-refresh tables still reload per tenant.
+
+---
+
+## 20. Validate Raw Tables
+
+Open ClickHouse:
+
+```bash
+docker exec -it minimarket_clickhouse clickhouse-client \
+  --user minimarket_user \
+  --password minimarket_password \
+  --database minimarket
+```
+
+Validate raw counts:
+
+```sql
+SELECT 'raw_customers' AS table_name, tenant_id, count(*) AS row_count
+FROM raw_customers
+GROUP BY tenant_id
+
+UNION ALL
+
+SELECT 'raw_products', tenant_id, count(*)
+FROM raw_products
+GROUP BY tenant_id
+
+UNION ALL
+
+SELECT 'raw_stores', tenant_id, count(*)
+FROM raw_stores
+GROUP BY tenant_id
+
+UNION ALL
+
+SELECT 'raw_promotions', tenant_id, count(*)
+FROM raw_promotions
+GROUP BY tenant_id
+
+UNION ALL
+
+SELECT 'raw_suppliers', tenant_id, count(*)
+FROM raw_suppliers
+GROUP BY tenant_id
+
+UNION ALL
+
+SELECT 'raw_transactions', tenant_id, count(*)
+FROM raw_transactions
+GROUP BY tenant_id
+
+UNION ALL
+
+SELECT 'raw_transaction_items', tenant_id, count(*)
+FROM raw_transaction_items
+GROUP BY tenant_id
+
+UNION ALL
+
+SELECT 'raw_transaction_promotions', tenant_id, count(*)
+FROM raw_transaction_promotions
+GROUP BY tenant_id
+
+ORDER BY table_name, tenant_id;
+```
+
+Validate watermarks:
+
+```sql
+SELECT
+    tenant_id,
+    table_name,
+    watermark_column,
+    max(last_watermark) AS last_watermark,
+    max(processed_at) AS last_processed_at
+FROM elt_watermarks
+GROUP BY
+    tenant_id,
+    table_name,
+    watermark_column
+ORDER BY
+    tenant_id,
+    table_name;
+```
+
+---
+
+## 21. Run dbt
+
+Run all dbt models:
+
+```bash
+docker compose run --rm dbt dbt run
+```
+
+Run dbt tests:
+
+```bash
+docker compose run --rm dbt dbt test
+```
+
+Run only staging:
+
+```bash
+docker compose run --rm dbt dbt run --select staging
+```
+
+Run only marts:
+
+```bash
+docker compose run --rm dbt dbt run --select marts
+```
+
+---
+
+## 22. Validate Staging Tables
+
+```sql
+SELECT 'stg_customers' AS table_name, count(*) AS row_count FROM stg_customers
+UNION ALL
+SELECT 'stg_products', count(*) FROM stg_products
+UNION ALL
+SELECT 'stg_stores', count(*) FROM stg_stores
+UNION ALL
+SELECT 'stg_promotions', count(*) FROM stg_promotions
+UNION ALL
+SELECT 'stg_suppliers', count(*) FROM stg_suppliers
+UNION ALL
+SELECT 'stg_transactions', count(*) FROM stg_transactions
+UNION ALL
+SELECT 'stg_transaction_items', count(*) FROM stg_transaction_items
+UNION ALL
+SELECT 'stg_transaction_promotions', count(*) FROM stg_transaction_promotions
+ORDER BY table_name;
+```
+
+---
+
+## 23. Validate Mart Tables
+
+```sql
+SELECT 'dim_customer' AS table_name, count(*) AS row_count FROM dim_customer
+UNION ALL
+SELECT 'dim_product', count(*) FROM dim_product
+UNION ALL
+SELECT 'dim_store', count(*) FROM dim_store
+UNION ALL
+SELECT 'dim_promotion', count(*) FROM dim_promotion
+UNION ALL
+SELECT 'dim_date', count(*) FROM dim_date
+UNION ALL
+SELECT 'fact_sales', count(*) FROM fact_sales
+UNION ALL
+SELECT 'fact_promotion_usage', count(*) FROM fact_promotion_usage
+ORDER BY table_name;
+```
+
+Validate tenant-level sales:
+
+```sql
+SELECT
+    tenant_id,
+    count(*) AS row_count,
+    countDistinct(transaction_key) AS transaction_count,
+    sum(subtotal) AS total_sales
+FROM fact_sales
+GROUP BY tenant_id
+ORDER BY tenant_id;
+```
+
+---
+
+## 24. Run Airflow
 
 Airflow UI:
 
@@ -242,204 +796,237 @@ username: admin
 password: admin
 ```
 
-### Step 5: Start Jupyter Notebook
+Trigger the DAG:
+
+```text
+minimarket_intermediate_elt_pipeline
+```
+
+The DAG should run:
+
+```text
+run_go_pipeline
+        ↓
+run_dbt_models
+        ↓
+run_dbt_tests
+```
+
+---
+
+## 25. Run FastAPI and Dashboard
+
+Start the API and dashboard:
 
 ```bash
-docker compose up -d jupyter
+docker compose up -d analytics_api dashboard
 ```
 
-Jupyter will be available at:
+FastAPI docs:
 
 ```text
-http://localhost:8888
-```
-use the JUPYTER_TOKEN for login or just run in your IDE
-
-### Step 6: Optional, start Superset
-
-```bash
-docker compose up -d superset
+http://localhost:8000/docs
 ```
 
-Superset will be available at:
+Dashboard:
 
 ```text
-http://localhost:8088
+http://localhost:3000
 ```
 
-Default login:
+Test API endpoints:
 
 ```text
-username: admin
-password: admin
+http://localhost:8000/api/summary
+http://localhost:8000/api/revenue-by-store
+http://localhost:8000/api/promotion-effectiveness
+http://localhost:8000/api/top-products-by-city
+http://localhost:8000/api/customer-segments
+http://localhost:8000/api/transactions-by-day
 ```
 
-## 11. Run the EL Pipeline Manually
+---
 
-To run the Python Polars extract-and-load pipeline manually via airflow:
-### Steps to run airflow
-- 11.a Open Airflow Webserver
-- 11.b Open minimarket_elt_pipeline dag
-- 11.c Activate minimarket minimarket_elt_pipeline dag
-- 11.d Wait for the dags to run
+## 26. Useful Local URLs
 
-The DAG executes these tasks:
+| Service | URL |
+| --- | --- |
+| Airflow | `http://localhost:8080` |
+| FastAPI Docs | `http://localhost:8000/docs` |
+| Chart.js Dashboard | `http://localhost:3000` |
+| ClickHouse HTTP | `http://localhost:8123` |
+| PostgreSQL | `localhost:5432` |
+| Jupyter Notebook | `http://localhost:8888` |
 
-```text
-run_python_polars_el
-    ↓
-dbt_debug
-    ↓
-dbt_run
-    ↓
-dbt_test
-```
+---
 
-The DAG performs the full pipeline from raw extraction to dbt transformation and testing.
+## 27. Reset the Project
 
-This loads data from PostgreSQL into ClickHouse raw tables.
-
-Check ClickHouse row counts:
-
-```bash
-docker exec -it minimarket_clickhouse clickhouse-client \
-  --user minimarket_user \
-  --password minimarket_password \
-  --database minimarket
-```
-
-Then run:
-
-```sql
-select count(*) from raw_customers;
-select count(*) from raw_products;
-select count(*) from raw_transactions;
-select count(*) from raw_transaction_items;
-```
-
-## 13. Visualization
-
-Open the notebook:
-
-```text
-notebooks/analysis.ipynb
-```
-
-SEE the answers in this notebook!
-
-The notebook connects directly to ClickHouse and visualizes:
-
-1. Top 5 products per category using a horizontal bar chart
-2. Monthly revenue trend using a line chart
-3. Payment method distribution using a pie chart
-
-## 14. Useful URLs in local machine
-
-| Service           | URL                     |
-| ----------------- | ----------------------- |
-| Airflow           | `http://localhost:8080` |
-| Jupyter Notebook  | `http://localhost:8888` |
-| Superset Optional | `http://localhost:8088` |
-| ClickHouse HTTP   | `http://localhost:8123` |
-| PostgreSQL        | `localhost:5432`        |
-
-## 15. Reset the Project
-
-To stop all services:
+Stop services:
 
 ```bash
 docker compose down
 ```
 
-To stop all services and remove volumes:
+Stop services and delete volumes:
 
 ```bash
 docker compose down -v
 ```
 
-Use `down -v` carefully because it deletes PostgreSQL, ClickHouse, and Airflow metadata volumes.
-
-To rebuild from scratch:
+Rebuild from scratch:
 
 ```bash
 docker compose down -v
 docker compose build
-docker compose up -d 
+docker compose up -d
 ```
 
-## 16. Troubleshooting
+Use `down -v` carefully because it deletes PostgreSQL, ClickHouse, and Airflow metadata volumes.
+
+---
+
+## 28. Troubleshooting
 
 ### ClickHouse connection refused
 
-If the pipeline tries to connect to `localhost:8123` from inside Docker, update the environment variable:
+Inside Docker containers, use:
 
 ```env
 CLICKHOUSE_HOST=clickhouse
 ```
 
-Inside Docker containers, use service names such as `clickhouse` and `postgres`.
+Use `localhost` only from the host machine.
+
+---
+
+### ClickHouse table schema does not update
+
+`CREATE TABLE IF NOT EXISTS` does not modify existing tables.
+
+Drop and recreate the table, or reset volumes:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+---
+
+### dbt cannot find raw tables
+
+Check `models/sources.yml`.
+
+Make sure the source identifiers point to raw tables:
+
+```yaml
+sources:
+  - name: raw
+    database: minimarket
+    schema: minimarket
+    tables:
+      - name: customers
+        identifier: raw_customers
+```
+
+---
+
+### API returns `UNKNOWN_IDENTIFIER`
+
+This usually means the dbt mart table does not contain the column expected by the API.
+
+Example:
+
+```text
+Unknown expression identifier tenant_id
+```
+
+Fix:
+
+```bash
+docker compose run --rm dbt dbt run --select marts --full-refresh
+docker compose restart analytics_api
+```
+
+Then inspect the table:
+
+```sql
+DESCRIBE TABLE fact_promotion_usage;
+```
+
+---
+
+### Dashboard cannot load data
+
+The browser must call the API through localhost:
+
+```javascript
+const API_BASE_URL = "http://localhost:8000/api";
+```
+
+Do not use Docker service names such as `analytics_api` in frontend JavaScript because the browser does not know Docker DNS names.
+
+---
 
 ### Airflow cannot read task logs, 403 Forbidden
 
-Make sure all Airflow services use the same webserver secret key:
+Make sure all Airflow services use the same secret key:
 
 ```env
 AIRFLOW_WEBSERVER_SECRET_KEY=minimarket_airflow_secret_key_please_change
 ```
 
-Also make sure webserver and scheduler share the logs volume:
+Also make sure webserver and scheduler share the logs volume.
 
-```yaml
-- ./logs:/opt/airflow/logs
-```
+---
 
-### dbt cannot find ClickHouse
+## 29. Demo Walkthrough Checklist
 
-Check that `profiles.yml` uses environment variables and that the dbt container receives:
+The demo should show:
 
-```env
-CLICKHOUSE_HOST=clickhouse
-CLICKHOUSE_PORT=8123
-CLICKHOUSE_DB=minimarket
-CLICKHOUSE_USER=minimarket_user
-CLICKHOUSE_PASSWORD=minimarket_password
-```
+1. Docker Compose services running
+2. PostgreSQL tenant schemas and seed data
+3. Golang pipeline running successfully
+4. Watermark table after the first run
+5. Second Go run loading zero incremental rows
+6. dbt run and dbt test success
+7. Airflow DAG success
+8. FastAPI docs and JSON endpoints
+9. Chart.js dashboard
+10. ClickHouse mart validation queries
 
-### Docker network not found
+---
 
-Make sure the Docker Compose network has a fixed name:
+## 30. Production Improvements
 
-```yaml
-networks:
-  minimarket_network:
-    name: minimarket_network
-    driver: bridge
-```
+Possible improvements:
 
-## 17. Video Walkthrough
+- Add `updated_at` to every source table for stronger incremental loading
+- Add CDC with Debezium and Kafka
+- Add data quality checks with Great Expectations or Soda Core
+- Add API authentication
+- Add dashboard filters by tenant/date/category
+- Add observability and alerting
+- Add centralized secret management
+- Add CI/CD pipeline
+- Add partitioning strategy in ClickHouse
+- Add ReplacingMergeTree or partition replacement for idempotent raw loading
 
-Video walkthrough link:
+---
+
+## 31. Notes
+
+This project started as a Beginner-level full-load pipeline using Python and Polars, then was extended into an Intermediate-level multi-tenant ELT pipeline using Golang.
+
+The current version uses:
 
 ```text
-https://youtu.be/6XRu6hsudcs
+Golang for multi-tenant raw loading
+ClickHouse for OLAP storage
+dbt for staging and mart transformations
+Airflow for orchestration
+FastAPI for analytics endpoints
+Chart.js for dashboard visualization
 ```
 
-The video demonstrates:
-
-1. Docker Compose stack running
-2. PostgreSQL and ClickHouse containers running
-3. Airflow DAG success
-4. dbt transformation success
-5. Jupyter Notebook visualizations
-
-## 18. Notes
-
-This project uses a full-load approach for the Beginner level. Each run reloads the raw ClickHouse tables before dbt transforms the data into staging and mart models.
-
-For production improvement, the pipeline can be extended with:
-
-* Incremental loading using `created_at` or `updated_at` watermarks
-* Data quality checks using dbt tests, Soda Core, or Great Expectations
-* More robust alerting in Airflow
-* Centralized secrets management
-* Superset dashboard as a production-style BI layer
+Apache Superset was explored as an optional BI layer, but the final dashboard implementation uses FastAPI and Chart.js because it is simpler, easier to control, and better aligned with the Intermediate technical test requirement.
