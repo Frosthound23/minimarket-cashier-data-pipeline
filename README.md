@@ -1,5 +1,6 @@
 # Minimarket Cashier Data Pipeline - Intermediate Level
-
+VIDEO TUTORIAL AND DESCRIPTION
+### YOUTUBE LINK: https://youtu.be/0PIqejnVOJA
 ## 1. Project Description
 
 This project is an end-to-end **Data Engineering pipeline** for a minimarket cashier / point-of-sale system. It was built for a Data Engineer take-home technical test.
@@ -9,6 +10,7 @@ The project simulates a multi-tenant minimarket environment where each tenant ha
 This version focuses on the **Intermediate Level** implementation.
 
 ---
+- Git Link: https://github.com/Frosthound23/minimarket-cashier-data-pipeline/tree/feat/intermediate-level
 
 ## 2. Main Features
 
