@@ -2,7 +2,7 @@
 
 ## 1. Project Description
 
-This project is an end-to-end data engineering pipeline for a minimarket cashier / point-of-sale system at a beginner-level. This project is for the take home test of the data engineering job application in Parkee.
+This project is an end-to-end data engineering pipeline for a minimarket cashier / point-of-sale system at a beginner-level.
 
 The pipeline extracts transactional data from PostgreSQL, loads the raw data into ClickHouse, transforms the data using dbt into a dimensional star schema, orchestrates the workflow using Apache Airflow, and visualizes the analytical results using Jupyter Notebook.
 
